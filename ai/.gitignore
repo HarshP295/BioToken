@@ -1,0 +1,7 @@
+venv/ 
+venv311/ 
+data/SMRT_dataset.csv 
+data/SMRT_features.csv 
+data/SMRT_features_v2.csv 
+__pycache__/ 
+*.pyc 

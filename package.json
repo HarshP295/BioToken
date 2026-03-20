@@ -1,0 +1,29 @@
+{
+  "name": "biotoken",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "npx hardhat test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HarshP295/BioToken.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/HarshP295/BioToken/issues"
+  },
+  "homepage": "https://github.com/HarshP295/BioToken#readme",
+  "description": "",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.28.6"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.6.1",
+    "@pinata/sdk": "^2.1.0",
+    "dotenv": "^17.3.1"
+  }
+}
