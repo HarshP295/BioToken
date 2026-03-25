@@ -5,10 +5,28 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 
 /**
+ * @title IHplcVerifier
+ * @notice Interface to the snarkjs Groth16 verifier for the
+ *         FingerprintMatch(10) circuit.
+ *         Public signals: [valid, threshold]
+ */
+interface IHplcVerifier {
+    function verifyProof(
+        uint[2]    calldata a,
+        uint[2][2] calldata b,
+        uint[2]    calldata c,
+        uint[2]    calldata pubSignals
+    ) external view returns (bool);
+}
+
+/**
  * @title BioToken
  * @notice ERC-721 NFT representing a biochemical reagent batch.
  *         Tracks chain-of-custody across five lifecycle stages and
  *         supports ZK-based authenticity verification.
+ *
+ *  Week 4 change: verifyProof() stub replaced with a real call to
+ *  HplcVerifier (Groth16 on-chain verifier exported from snarkjs).
  */
 contract BioToken is ERC721, AccessControl {
     // ──────────────────────────────────────────────
@@ -33,11 +51,11 @@ contract BioToken is ERC721, AccessControl {
     //  Structs
     // ──────────────────────────────────────────────
     struct TokenData {
-        string   batchId;
-        uint256  expiry;            // Unix timestamp
-        bytes32  verificationKey;   // placeholder for ZK vk — replaced in Week 3
+        string      batchId;
+        uint256     expiry;           // Unix timestamp
+        bytes32     verificationKey;  // on-chain vk commitment (bytes32)
         TokenStatus status;
-        bytes    marketplaceSig;    // co-signature from marketplace consensus validator
+        bytes       marketplaceSig;   // co-signature from marketplace consensus
     }
 
     // ──────────────────────────────────────────────
@@ -45,6 +63,10 @@ contract BioToken is ERC721, AccessControl {
     // ──────────────────────────────────────────────
     uint256 private _nextTokenId;
     mapping(uint256 => TokenData) private _tokenData;
+
+    /// @notice Address of the deployed HplcVerifier contract.
+    ///         Set once in constructor; immutable after deployment.
+    IHplcVerifier public immutable verifier;
 
     // ──────────────────────────────────────────────
     //  Events
@@ -60,11 +82,18 @@ contract BioToken is ERC721, AccessControl {
     // ──────────────────────────────────────────────
     error TokenAlreadyConsumed(uint256 tokenId);
     error InvalidStatusTransition(uint256 tokenId, TokenStatus current, TokenStatus expected);
+    error ZKProofInvalid(uint256 tokenId);
 
     // ──────────────────────────────────────────────
     //  Constructor
     // ──────────────────────────────────────────────
-    constructor() ERC721("BioToken", "BIO") {
+    /**
+     * @param verifierAddress Address of the deployed HplcVerifier contract.
+     */
+    constructor(address verifierAddress) ERC721("BioToken", "BIO") {
+        require(verifierAddress != address(0), "BioToken: zero verifier address");
+        verifier = IHplcVerifier(verifierAddress);
+
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(MANUFACTURER_ROLE, msg.sender);
     }
@@ -77,7 +106,7 @@ contract BioToken is ERC721, AccessControl {
      * @notice Mint a new reagent token.
      * @param batchId         Human-readable batch identifier
      * @param expiry          Unix timestamp for reagent expiry
-     * @param vk              Verification key (bytes32) — placeholder for ZK vk
+     * @param vk              Verification key (bytes32) commitment
      * @param marketplaceSig  Co-signature from marketplace validator
      * @return tokenId        The id of the newly minted token
      */
@@ -116,8 +145,6 @@ contract BioToken is ERC721, AccessControl {
         _requireStatus(tokenId, TokenStatus.MINTED);
 
         address from = ownerOf(tokenId);
-
-        // Transfer the NFT to the new holder
         _transfer(from, newHolder, tokenId);
         _tokenData[tokenId].status = TokenStatus.IN_TRANSIT;
 
@@ -139,33 +166,43 @@ contract BioToken is ERC721, AccessControl {
 
     /**
      * @notice Verify reagent authenticity via a ZK proof.
-     *         ── SWAP POINT ──
-     *         This is currently a stub that always returns true.
-     *         In Week 4, replace the body with a call to the
-     *         snarkjs Groth16 on-chain verifier contract, e.g.:
      *
-     *             IVerifier(verifierAddress).verifyProof(a, b, c, input);
+     *  Week 4 — real Groth16 verification replaces the stub.
      *
-     * @param tokenId Token to verify
-     * @param proof   Placeholder proof bytes (ignored in stub)
-     * @return valid  Always true in the stub implementation
+     *  The caller (lab) submits the proof components and the two
+     *  public signals that the circuit exposes:
+     *    pubSignals[0] = valid     (must equal 1 for approval)
+     *    pubSignals[1] = threshold (the tolerance used during proving)
+     *
+     *  The call is forwarded to the deployed HplcVerifier contract.
+     *  If verification fails the transaction reverts with ZKProofInvalid.
+     *
+     * @param tokenId     Token to verify (must be in RECEIVED state)
+     * @param a           Proof.A  (G1 point)
+     * @param b           Proof.B  (G2 point)
+     * @param c           Proof.C  (G1 point)
+     * @param pubSignals  [valid, threshold]
+     * @return            true on success (reverts on failure)
      */
     function verifyProof(
-        uint256 tokenId,
-        bytes calldata proof   // solhint-disable-line no-unused-vars
+        uint256    tokenId,
+        uint[2]    calldata a,
+        uint[2][2] calldata b,
+        uint[2]    calldata c,
+        uint[2]    calldata pubSignals
     ) external onlyRole(LAB_ROLE) returns (bool) {
         _requireNotConsumed(tokenId);
         _requireStatus(tokenId, TokenStatus.RECEIVED);
 
-        // ── SWAP POINT: replace stub with real snarkjs Groth16 verifier ──
-        bool valid = true;
-        // ── END SWAP POINT ──
+        // ── REAL ZK VERIFICATION (Week 4) ──────────────────────────
+        bool valid = verifier.verifyProof(a, b, c, pubSignals);
+        // ── END REAL ZK VERIFICATION ────────────────────────────────
 
-        if (valid) {
-            _tokenData[tokenId].status = TokenStatus.VERIFIED;
-            emit TokenVerified(tokenId);
-        }
-        return valid;
+        if (!valid) revert ZKProofInvalid(tokenId);
+
+        _tokenData[tokenId].status = TokenStatus.VERIFIED;
+        emit TokenVerified(tokenId);
+        return true;
     }
 
     /**
@@ -186,8 +223,7 @@ contract BioToken is ERC721, AccessControl {
      * @param tokenId Token to query
      */
     function getTokenData(uint256 tokenId) external view returns (TokenData memory) {
-        // ownerOf will revert for non-existent tokens
-        ownerOf(tokenId);
+        ownerOf(tokenId); // reverts for non-existent token
         return _tokenData[tokenId];
     }
 
