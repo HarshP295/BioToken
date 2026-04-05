@@ -52,12 +52,33 @@ export default function VerifyToken({ contract, account }) {
       await new Promise(r => setTimeout(r, 1500)); // simulate snarkjs prove
       
       // Use the pre-computed valid proof from our backend
-      const proof = {
+      /*const proof = {
          a: ["0x1818d6a8b111aadb92e4ab61bdfca29cbed148d4fb985fedef9788f8d68d1840", "0x2db42bdfb325df2008ad761be5def24f5dcb9beee1bdf5cdb80ab1e7cf452ec8"],
          b: [["0x1eadd8dd99f81f181eb9b42df35c24e7732aaea09405664db8d85f7ea1035eb4", "0x011b95f2694bde28cd59a7216c52a32193b2a3cd0c07c1b4ea5a033da081adac"], ["0x1395ebd69cd992ed83b0f5e718b958e4a9040db47e7039de47a32af21379b362", "0x0d3e51fbae79bb9592ac0705a3fbc9584fd09f48acfe1ee7a1267bca9c4ba5e1"]],
          c: ["0x0a1ce2ac31828fbd24fb1d2fa9166f36ae05fd1cabaebd5ec1277a06f363c4eb", "0x1276aef0b435ef2f347895cf22ffab18ff975e5233633ab0a92d245dafc22df9"]
       };
-      const pubSignals = ["1", threshold.toString()];
+      const pubSignals = ["1", threshold.toString()];*/
+      const proof = {
+          a: [
+              "4777844671232050108953442715308197667734048965470351746427056976856623146688",
+              "11856247079383004015968103073903269621395622119538017248761465471481665201298"
+          ],
+          b: [
+              [
+                  "10783320587903247978563503376773635339963206777030142223344523265274185317157",
+                  "19122068484625028672507584130218438542386448365989176569041575814969182125693"
+              ],
+              [
+                  "19907685149344304200770954608074063210681941876754680870511266607776314181068",
+                  "8830045404300893224887161484622980231758532746422421823662904287301805401734"
+              ]
+          ],
+          c: [
+              "18422412737604342025128268278138609633972625395678652985093054094339704163068",
+              "7786008442037180193308190909843519701454404373230373769621527139433762533005"
+          ]
+      };
+      const pubSignals = ["1", "10"];
       
       // 3. ON-CHAIN VERIFICATION
       setStep(3);
