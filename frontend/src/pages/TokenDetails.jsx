@@ -1,34 +1,38 @@
 // frontend/src/pages/TokenDetails.jsx
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Send, CheckCircle2 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
+import { ArrowLeft, RefreshCw, Send, CheckCircle2, Info, ShieldCheck, Beaker } from 'lucide-react';
 import StatusBadge, { STAGES } from '../components/StatusBadge';
+
+const LIFECYCLE = [
+  { id: 0, label: 'Minted',              color: 'var(--chain)',   action: 'transfer', actionLabel: 'Transit to Lab', icon: <Send size={13} /> },
+  { id: 1, label: 'In Transit',          color: 'var(--warning)', action: 'receive',  actionLabel: 'Confirm Receipt', icon: <CheckCircle2 size={13} /> },
+  { id: 2, label: 'Received by Lab',     color: 'var(--text-muted)', action: 'verify', actionLabel: 'Run Verification', icon: <ShieldCheck size={13} />, isLink: true },
+  { id: 3, label: 'Authenticity Verified', color: 'var(--accent)',  action: 'consume', actionLabel: 'Consume Reagent', icon: <Beaker size={13} /> },
+  { id: 4, label: 'Consumed',            color: 'var(--alert)',    action: null, actionLabel: null },
+];
 
 export default function TokenDetails({ contract, account }) {
   const [searchParams] = useSearchParams();
   const tokenId = searchParams.get('id');
-  
-  const [token, setToken] = useState(null);
-  const [loading, setLoading] = useState(true);
+
+  const [token,         setToken]         = useState(null);
+  const [loading,       setLoading]       = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error,         setError]         = useState('');
 
   const loadData = async () => {
     if (!contract || !tokenId) return;
     try {
-      setLoading(true);
-      setError('');
+      setLoading(true); setError('');
       const owner = await contract.ownerOf(tokenId);
-      const data = await contract.getTokenData(tokenId);
-      
+      const data  = await contract.getTokenData(tokenId);
       setToken({
-        id: tokenId,
-        owner,
+        id: tokenId, owner,
         batchId: data.batchId,
         expiry: new Date(Number(data.expiry) * 1000).toLocaleString(),
         status: Number(data.status),
-        vkHash: data.verificationKey
+        vkHash: data.verificationKey,
       });
     } catch (err) {
       console.error(err);
@@ -38,26 +42,21 @@ export default function TokenDetails({ contract, account }) {
     }
   };
 
-  useEffect(() => {
-    if (contract) loadData();
-  }, [contract, tokenId]);
+  useEffect(() => { if (contract) loadData(); }, [contract, tokenId]);
 
   const handleAction = async (actionType) => {
     try {
       setActionLoading(true);
       let tx;
-      
       if (actionType === 'transfer') {
-        const dummyLabAddress = "0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199"; // just for demo UI
-        tx = await contract.transferCustody(tokenId, dummyLabAddress);
+        tx = await contract.transferCustody(tokenId, '0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199');
       } else if (actionType === 'receive') {
         tx = await contract.confirmReceipt(tokenId);
       } else if (actionType === 'consume') {
         tx = await contract.consumeToken(tokenId);
       }
-      
       await tx.wait();
-      await loadData(); // refresh data
+      await loadData();
     } catch (err) {
       console.error(err);
       alert(err.reason || err.message);
@@ -67,14 +66,21 @@ export default function TokenDetails({ contract, account }) {
   };
 
   if (loading) {
-    return <div className="flex justify-center p-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div></div>;
+    return (
+      <div className="page-content" style={{ display: 'flex', justifyContent: 'center', padding: '6rem 0' }}>
+        <div style={{ width: 36, height: 36, border: '3px solid var(--border)', borderTop: '3px solid var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+      </div>
+    );
   }
 
   if (error || !token) {
     return (
-      <div className="text-center p-12">
-        <h2 className="text-2xl mb-4">Token Not Found</h2>
-        <Link to="/" className="btn btn-secondary">Current Dashboard</Link>
+      <div className="page-content" style={{ textAlign: 'center', paddingTop: '5rem' }}>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.6rem', marginBottom: '1.25rem' }}>Token Not Found</h2>
+        <p style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', marginBottom: '1.75rem', fontSize: '0.85rem' }}>
+          {error || 'This token ID does not exist on the connected network.'}
+        </p>
+        <Link to="/dashboard" className="btn btn-outline">← Back to Dashboard</Link>
       </div>
     );
   }
@@ -82,118 +88,133 @@ export default function TokenDetails({ contract, account }) {
   const statusNum = token.status;
 
   return (
-    <div className="animate-fade-in" style={{ maxWidth: '800px', margin: '0 auto' }}>
-      <div className="flex justify-between items-center mb-8">
-        <Link to="/" className="btn btn-secondary flex items-center gap-2" style={{ padding: '0.5rem 1rem' }}>
-          <ArrowLeft className="w-4 h-4" /> Back
-        </Link>
-        <button onClick={loadData} disabled={actionLoading} className="btn btn-secondary flex items-center gap-2" style={{ padding: '0.5rem 1rem' }}>
-          <RefreshCw className={`w-4 h-4 ${actionLoading ? 'animate-spin' : ''}`} />
-        </button>
-      </div>
+    <div className="page-content animate-fade-in">
+      <div style={{ maxWidth: 820, margin: '0 auto' }}>
 
-      <div className="glass-card mb-8">
-        <div className="flex justify-between items-start mb-6 pb-6" style={{ borderBottom: '1px solid var(--border)' }}>
-          <div>
-            <h1 className="page-title" style={{ fontSize: '2rem', marginBottom: '0.25rem' }}>{token.batchId}</h1>
-            <p style={{ color: 'var(--text-muted)' }}>Token #{token.id}</p>
-          </div>
-          <StatusBadge status={token.status} />
+        {/* Nav row */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2rem' }}>
+          <Link to="/dashboard" className="btn btn-outline" style={{ padding: '0.5rem 1rem', fontSize: '0.78rem' }}>
+            <ArrowLeft size={14} /> Dashboard
+          </Link>
+          <button onClick={loadData} disabled={actionLoading} className="btn btn-secondary" style={{ padding: '0.5rem 1rem' }}>
+            <RefreshCw size={14} className={actionLoading ? 'animate-spin' : ''} />
+          </button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
-          <div>
-            <div style={{ marginBottom: '1.5rem' }}>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '0.25rem' }}>Current Owner</p>
-              <p style={{ fontFamily: 'monospace', fontWeight: '500' }}>{token.owner}</p>
-            </div>
-            
+        {/* Header card */}
+        <div className="lab-card" style={{ marginBottom: '1.5rem', borderLeft: '3px solid var(--accent)' }}>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+            paddingBottom: '1.5rem', marginBottom: '1.5rem', borderBottom: '1px solid var(--border)',
+            flexWrap: 'wrap', gap: '1rem',
+          }}>
             <div>
-              <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '0.25rem' }}>Expiry Date</p>
-              <p>{token.expiry}</p>
+              <div className="section-label" style={{ marginBottom: '0.25rem' }}>Token #{token.id}</div>
+              <h1 style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', fontWeight: 700, color: 'var(--text)', margin: 0 }}>
+                {token.batchId}
+              </h1>
+            </div>
+            <StatusBadge status={token.status} />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.5rem' }}>
+            <div>
+              <div className="form-label" style={{ marginBottom: '0.35rem' }}>Current Owner</div>
+              <div className="mono-address" style={{ fontSize: '0.82rem', wordBreak: 'break-all' }}>{token.owner}</div>
+            </div>
+            <div>
+              <div className="form-label" style={{ marginBottom: '0.35rem' }}>Expiry Date</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.88rem', color: 'var(--text)' }}>{token.expiry}</div>
+            </div>
+            <div>
+              <div className="form-label" style={{ marginBottom: '0.35rem' }}>Network</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.88rem', color: 'var(--text)' }}>Polygon Amoy</div>
             </div>
           </div>
-          
-          <div>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', marginBottom: '0.25rem' }}>Verification Key Committment</p>
-            <p style={{ fontFamily: 'monospace', fontSize: '0.8rem', opacity: 0.8, overflowWrap: 'break-word', background: 'rgba(0,0,0,0.2)', padding: '0.5rem', borderRadius: '0.25rem' }}>
-              {token.vkHash}
-            </p>
+
+          {token.vkHash && (
+            <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
+              <div className="form-label" style={{ marginBottom: '0.35rem' }}>Verification Key Commitment</div>
+              <div style={{
+                fontFamily: 'var(--font-mono)', fontSize: '0.76rem', color: 'var(--text-muted)',
+                background: 'var(--surface-alt)', padding: '0.75rem 1rem',
+                borderRadius: 'var(--radius-md)', border: '1px solid var(--border)',
+                wordBreak: 'break-all', lineHeight: 1.6,
+              }}>{token.vkHash}</div>
+            </div>
+          )}
+        </div>
+
+        {/* Lifecycle */}
+        <div style={{ marginBottom: '0.75rem' }}>
+          <div className="section-label">Lifecycle Actions</div>
+        </div>
+
+        <div className="lab-card">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {LIFECYCLE.map((stage) => {
+              const done    = statusNum > stage.id;
+              const current = statusNum === stage.id;
+              const pending = statusNum < stage.id;
+
+              return (
+                <div key={stage.id} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '0.9rem 1.1rem',
+                  borderRadius: 'var(--radius-md)',
+                  border: current
+                    ? `1px solid ${stage.color}`
+                    : done ? '1px solid var(--border)' : '1px solid var(--border)',
+                  background: current ? `color-mix(in srgb, ${stage.color} 6%, transparent)` : 'transparent',
+                  opacity: pending ? 0.45 : 1,
+                  transition: 'all 0.2s',
+                  flexWrap: 'wrap', gap: '0.5rem',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <div style={{
+                      width: 26, height: 26, borderRadius: '50%',
+                      background: done || current ? stage.color : 'var(--border)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      color: '#fff', flexShrink: 0,
+                    }}>
+                      <CheckCircle2 size={14} />
+                    </div>
+                    <div>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: '0.85rem', color: 'var(--text)' }}>
+                        {stage.id + 1}. {stage.label}
+                      </div>
+                    </div>
+                  </div>
+
+                  {current && stage.action && (
+                    stage.isLink
+                      ? (
+                        <Link to={`/verify?id=${tokenId}`} className="btn btn-accent" style={{ padding: '0.4rem 1rem', fontSize: '0.76rem' }}>
+                          {stage.icon} {stage.actionLabel}
+                        </Link>
+                      )
+                      : (
+                        <button
+                          className="btn btn-outline"
+                          style={{ padding: '0.4rem 1rem', fontSize: '0.76rem' }}
+                          onClick={() => handleAction(stage.action)}
+                          disabled={actionLoading}
+                        >
+                          {stage.icon} {stage.actionLabel}
+                        </button>
+                      )
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
-      </div>
 
-      {/* Lifecycle Progress Bar */}
-      <h3 style={{ marginBottom: '1.5rem', fontSize: '1.25rem' }}>Lifecycle Actions</h3>
-      <div className="glass-card">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          
-          <div className="flex justify-between items-center" style={{ padding: '1rem', background: statusNum >= 0 ? 'rgba(59, 130, 246, 0.1)' : 'transparent', borderRadius: '0.5rem', border: statusNum >= 0 ? '1px solid var(--primary)' : '1px solid var(--border)' }}>
-            <div className="flex items-center gap-3">
-              <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: statusNum >= 0 ? 'var(--primary)' : 'var(--bg-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <CheckCircle2 className="w-4 h-4 text-white" />
-              </div>
-              <span style={{ fontWeight: 500 }}>1. Minted</span>
-            </div>
-            {statusNum === 0 && (
-              <button className="btn btn-secondary text-sm" onClick={() => handleAction('transfer')} disabled={actionLoading}>
-                <Send className="w-4 h-4" /> Transit to Lab
-              </button>
-            )}
+        {!account && (
+          <div className="alert-banner alert-banner--warning" style={{ marginTop: '1.5rem' }}>
+            <Info size={16} /> Connect your wallet to perform lifecycle actions on this token.
           </div>
-
-          <div className="flex justify-between items-center" style={{ padding: '1rem', background: statusNum >= 1 ? 'rgba(245, 158, 11, 0.1)' : 'transparent', borderRadius: '0.5rem', border: statusNum >= 1 ? '1px solid var(--warning)' : '1px solid var(--border)' }}>
-            <div className="flex items-center gap-3">
-              <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: statusNum >= 1 ? 'var(--warning)' : 'var(--bg-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <CheckCircle2 className="w-4 h-4 text-white" />
-              </div>
-              <span style={{ fontWeight: 500, opacity: statusNum >= 1 ? 1 : 0.5 }}>2. In Transit</span>
-            </div>
-            {statusNum === 1 && (
-              <button className="btn btn-secondary text-sm" onClick={() => handleAction('receive')} disabled={actionLoading}>
-                Confirm Receipt
-              </button>
-            )}
-          </div>
-
-          <div className="flex justify-between items-center" style={{ padding: '1rem', background: statusNum >= 2 ? 'rgba(255, 255, 255, 0.1)' : 'transparent', borderRadius: '0.5rem', border: statusNum >= 2 ? '1px solid rgba(255,255,255,0.3)' : '1px solid var(--border)' }}>
-            <div className="flex items-center gap-3">
-              <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: statusNum >= 2 ? '#fff' : 'var(--bg-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <CheckCircle2 className="w-4 h-4" style={{ color: statusNum >= 2 ? '#000' : '#fff' }} />
-              </div>
-              <span style={{ fontWeight: 500, opacity: statusNum >= 2 ? 1 : 0.5 }}>3. Received By Lab</span>
-            </div>
-            {statusNum === 2 && (
-              <Link to={`/verify?id=${tokenId}`} className="btn btn-primary text-sm">
-                Initiate AI + ZK Verification
-              </Link>
-            )}
-          </div>
-
-          <div className="flex justify-between items-center" style={{ padding: '1rem', background: statusNum >= 3 ? 'rgba(16, 185, 129, 0.1)' : 'transparent', borderRadius: '0.5rem', border: statusNum >= 3 ? '1px solid var(--accent)' : '1px solid var(--border)' }}>
-            <div className="flex items-center gap-3">
-              <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: statusNum >= 3 ? 'var(--accent)' : 'var(--bg-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <CheckCircle2 className="w-4 h-4 text-white" />
-              </div>
-              <span style={{ fontWeight: 500, opacity: statusNum >= 3 ? 1 : 0.5 }}>4. Authenticity Verified</span>
-            </div>
-            {statusNum === 3 && (
-              <button className="btn btn-secondary text-sm" onClick={() => handleAction('consume')} disabled={actionLoading}>
-                Consume Reagent
-              </button>
-            )}
-          </div>
-
-          <div className="flex justify-between items-center" style={{ padding: '1rem', background: statusNum >= 4 ? 'rgba(239, 68, 68, 0.1)' : 'transparent', borderRadius: '0.5rem', border: statusNum >= 4 ? '1px solid var(--danger)' : '1px solid var(--border)' }}>
-             <div className="flex items-center gap-3">
-              <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: statusNum >= 4 ? 'var(--danger)' : 'var(--bg-hover)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <CheckCircle2 className="w-4 h-4 text-white" />
-              </div>
-              <span style={{ fontWeight: 500, opacity: statusNum >= 4 ? 1 : 0.5 }}>5. Consumed</span>
-            </div>
-          </div>
-
-        </div>
+        )}
       </div>
     </div>
   );
