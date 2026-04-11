@@ -1,5 +1,7 @@
 node_modules
 .env
+.env.*
+secrets_for_team.txt
 cache
 artifacts
 typechain-types

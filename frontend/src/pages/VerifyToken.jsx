@@ -1,8 +1,13 @@
 // frontend/src/pages/VerifyToken.jsx
 import { useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
+import { useWallets } from '@privy-io/react-auth';
 import { ShieldAlert, Fingerprint, CheckCircle2, QrCode, ShieldCheck, Beaker, AlertTriangle } from 'lucide-react';
 import { aiPreScreen } from '../utils/aiCheck';
+import { ethers } from 'ethers';
+import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
+import { useGaslessContract } from '../hooks/useGaslessContract';
 
 // ZK verification pipeline — the proof logic is unchanged from the original.
 // UI: 3-step visual flow (Scan QR → Verify ZK → Consume)
@@ -90,9 +95,15 @@ function AiResultCard({ result }) {
   );
 }
 
-export default function VerifyToken({ contract, account }) {
+export default function VerifyToken({ contract }) {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+
+  const { ready, authenticated, user, createWallet } = useAuth();
+  const { wallets } = useWallets();
+  const wallet = wallets[0];
+  const account = wallet?.address || user?.wallet?.address;
+  const { sendGaslessTx, loading: isGaslessLoading, error: gaslessError } = useGaslessContract();
 
   const [tokenId,   setTokenId]   = useState(searchParams.get('id') || '');
   const [peaksStr,  setPeaksStr]  = useState('100, 105, 108, 103, 101, 99, 102, 104, 100, 103');
@@ -105,11 +116,29 @@ export default function VerifyToken({ contract, account }) {
 
   const handleVerify = async (e) => {
     e.preventDefault();
-    if (!contract || !account) { setError('Please connect your wallet.'); return; }
+    if (!authenticated) { setError('Please log in.'); return; }
+    if (!wallet) {
+      if (createWallet && !user?.wallet) {
+        try {
+          await createWallet();
+          return;
+        } catch (err) {
+          setError('Failed to create an embedded wallet. Please log out and log in again.');
+          return;
+        }
+      }
+      setError('No active wallet found. Please refresh or re-login.');
+      return;
+    }
 
     try {
       setLoading(true); setError(''); setAiResult(null);
       setStep(1);
+
+      let activeContract = contract;
+      if (!activeContract) {
+        setLoading(true);
+      }
 
       const peaks = peaksStr.split(',').map(s => parseInt(s.trim()));
 
@@ -142,8 +171,7 @@ export default function VerifyToken({ contract, account }) {
 
       // 3. ON-CHAIN VERIFICATION
       setStep(3);
-      const tx = await contract.verifyProof(tokenId, proof.a, proof.b, proof.c, pubSignals);
-      await tx.wait();
+      await sendGaslessTx('verifyProof', [tokenId, proof.a, proof.b, proof.c, pubSignals]);
 
       navigate(`/details?id=${tokenId}`);
     } catch (err) {
@@ -175,6 +203,11 @@ export default function VerifyToken({ contract, account }) {
         {error && (
           <div className="alert-banner alert-banner--error">
             <ShieldAlert size={16} style={{ flexShrink: 0 }} /> {error}
+          </div>
+        )}
+        {gaslessError && (
+          <div className="alert-banner alert-banner--error">
+            <ShieldAlert size={16} style={{ flexShrink: 0 }} /> {gaslessError}
           </div>
         )}
 
@@ -236,10 +269,10 @@ export default function VerifyToken({ contract, account }) {
             <button
               type="submit"
               className="btn btn-accent w-full"
-              disabled={loading || !account}
+              disabled={loading || isGaslessLoading || !authenticated}
               style={{ padding: '0.85rem', marginTop: '0.5rem' }}
             >
-              {loading ? (
+              {loading || isGaslessLoading ? (
                 <>
                   <div style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTop: '2px solid #fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
                   {step === 1 ? 'Running AI Analysis…' : step === 2 ? 'Generating ZK Proof…' : 'Broadcasting On-Chain…'}

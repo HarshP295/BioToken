@@ -2,10 +2,14 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ethers } from 'ethers';
+import { useAuth } from '../hooks/useAuth';
+import { useWallets } from '@privy-io/react-auth';
+import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
 import {
   Upload, PackageCheck, AlertCircle, ChevronRight,
   CheckCircle2, FlaskConical, Clock, Hash
 } from 'lucide-react';
+import { useGaslessContract } from '../hooks/useGaslessContract';
 
 function ValidatorStrip() {
   const validators = [
@@ -132,9 +136,14 @@ function NFTPreview({ batchId, expiryDays }) {
   );
 }
 
-export default function MintToken({ contract, account }) {
+export default function MintToken({ contract }) {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(false);
+  const { ready, authenticated, user, createWallet } = useAuth();
+  const { wallets } = useWallets();
+  const wallet = wallets[0];
+  const account = wallet?.address || user?.wallet?.address;
+  const { sendGaslessTx, loading, error: gaslessError } = useGaslessContract();
+  const [internalLoading, setInternalLoading] = useState(false);
   const [error, setError]     = useState('');
   const [fpFile, setFpFile]   = useState(null);
   const [formData, setFormData] = useState({
@@ -144,28 +153,54 @@ export default function MintToken({ contract, account }) {
 
   const handleMint = async (e) => {
     e.preventDefault();
-    if (!contract || !account) { setError('Please connect your wallet first.'); return; }
+    if (!authenticated) { setError('Please log in first.'); return; }
+    if (!wallet) {
+      if (createWallet && !user?.wallet) {
+        try {
+          await createWallet();
+          return; // The hook will trigger wallet creation popup
+        } catch (err) {
+          setError('Failed to create an embedded wallet. Please log out and log in again.');
+          return;
+        }
+      }
+      setError('No active wallet found. Please refresh or re-login.');
+      return;
+    }
 
     try {
-      setLoading(true); setError('');
+      setInternalLoading(true); setError('');
+      
       const expiry = Math.floor(Date.now() / 1000) + formData.expiryDays * 86400;
-      const vkHash = ethers.zeroPadValue(ethers.randomBytes(32), 32);
-      const tx = await contract.mintToken(formData.batchId, expiry, vkHash, '0x');
-      const receipt = await tx.wait();
+      const vkHash = '0x' + '0'.repeat(64);
+      
+      // Use Pimlico Smart Account for Gasless Tx
+      const receipt = await sendGaslessTx('mintToken', [
+        formData.batchId,
+        BigInt(expiry),
+        vkHash,
+        '0x'
+      ]);
 
       let tokenId = null;
+      // We parse the receipt logs using the BioToken ABI (ensure you have the interface available if needed)
+      // Alternatively, navigate directly if decoding is complex
+      let activeContract = contract;
+      if (!activeContract) {
+         activeContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI);
+      }
       for (const log of receipt.logs) {
         try {
-          const parsed = contract.interface.parseLog(log);
-          if (parsed.name === 'TokenMinted') { tokenId = parsed.args[0].toString(); break; }
+          const parsed = activeContract.interface.parseLog(log);
+          if (parsed && parsed.name === 'TokenMinted') { tokenId = parsed.args[0].toString(); break; }
         } catch { /* skip */ }
       }
-      navigate(`/details?id=${tokenId || 0}`);
+      navigate(`/details?id=${tokenId || Number(receipt.logs[0].topics[3]).toString()}`);
     } catch (err) {
       console.error(err);
       setError(err.reason || err.message || 'Minting failed.');
     } finally {
-      setLoading(false);
+      setInternalLoading(false);
     }
   };
 
@@ -197,6 +232,11 @@ export default function MintToken({ contract, account }) {
                   <AlertCircle size={16} style={{ flexShrink: 0 }} /> {error}
                 </div>
               )}
+              {gaslessError && (
+                <div className="alert-banner alert-banner--error" style={{ marginBottom: '1.5rem' }}>
+                  <AlertCircle size={16} style={{ flexShrink: 0 }} /> {gaslessError}
+                </div>
+              )}
 
               <form onSubmit={handleMint}>
                 <div className="form-group">
@@ -223,10 +263,10 @@ export default function MintToken({ contract, account }) {
                 <button
                   type="submit"
                   className="btn btn-accent w-full"
-                  disabled={loading || !account}
+                  disabled={loading || internalLoading || !authenticated}
                   style={{ marginTop: '0.5rem', padding: '0.85rem' }}
                 >
-                  {loading ? (
+                  {loading || internalLoading ? (
                     <>
                       <div style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTop: '2px solid #fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
                       Broadcasting Transaction…

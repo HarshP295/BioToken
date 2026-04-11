@@ -4,6 +4,11 @@ import { RefreshCw, ArrowRight, FlaskConical, Package, Info } from 'lucide-react
 import StatusBadge, { STAGES } from '../components/StatusBadge';
 import MoleculeBackground from '../components/MoleculeBackground';
 
+import { useAuth } from '../hooks/useAuth';
+import { useWallets } from '@privy-io/react-auth';
+import { ethers } from 'ethers';
+import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
+
 const STATUS_CARD_ACCENT = ['--chain', '--warning', '--text-muted', '--accent', '--alert'];
 
 function EmptyState() {
@@ -113,21 +118,43 @@ function StageFilter({ active, onChange }) {
   );
 }
 
-export default function Dashboard({ contract, account }) {
+export default function Dashboard({ contract }) {
+  const { ready, authenticated, user } = useAuth();
+  const { wallets } = useWallets();
+  const wallet = wallets[0];
+  const account = wallet?.address || user?.wallet?.address;
+
   const [tokens, setTokens]       = useState([]);
   const [loading, setLoading]     = useState(false);
   const [error, setError]         = useState('');
   const [stageFilter, setStageFilter] = useState(null);
 
+  const getActiveContract = async () => {
+    let activeContract = contract;
+    if (!activeContract) {
+      if (wallet) {
+        const provider = await wallet.getEthereumProvider();
+        const browserProvider = new ethers.BrowserProvider(provider);
+        const signer = await browserProvider.getSigner();
+        activeContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+      } else {
+        const fallbackProvider = new ethers.JsonRpcProvider("https://rpc-amoy.polygon.technology");
+        activeContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, fallbackProvider);
+      }
+    }
+    return activeContract;
+  };
+
   const loadTokens = async () => {
-    if (!contract || !account) return;
+    if (!authenticated) return;
     try {
       setLoading(true); setError('');
+      const activeContract = await getActiveContract();
       const fetched = [];
       for (let i = 0; i < 30; i++) {
         try {
-          const owner = await contract.ownerOf(i);
-          const data  = await contract.getTokenData(i);
+          const owner = await activeContract.ownerOf(i);
+          const data  = await activeContract.getTokenData(i);
           fetched.push({ id: i, owner, batchId: data.batchId, expiry: Number(data.expiry), status: Number(data.status) });
         } catch { break; }
       }
@@ -140,11 +167,11 @@ export default function Dashboard({ contract, account }) {
     }
   };
 
-  useEffect(() => { loadTokens(); }, [contract, account]);
+  useEffect(() => { loadTokens(); }, [contract, authenticated, wallet]);
 
   const filtered = stageFilter === null ? tokens : tokens.filter(t => Number(t.status) === stageFilter);
 
-  if (!account) {
+  if (!authenticated) {
     return (
       <div style={{
         textAlign: 'center', paddingTop: '6rem', paddingBottom: '6rem',
@@ -173,7 +200,7 @@ export default function Dashboard({ contract, account }) {
             fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', fontSize: '0.9rem',
             maxWidth: 400, margin: '0 auto 2rem', lineHeight: 1.7,
           }}>
-            Connect your MetaMask wallet to view and manage reagent batch tokens.
+            Log in to view and manage reagent batch tokens.
           </p>
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
@@ -182,7 +209,7 @@ export default function Dashboard({ contract, account }) {
             fontFamily: 'var(--font-mono)', fontSize: '0.82rem',
             background: 'rgba(248,247,244,0.75)', backdropFilter: 'blur(8px)',
           }}>
-            <Info size={16} /> Wallet disconnected — use Connect Wallet in the navbar
+            <Info size={16} /> Wallet disconnected — log in to continue
           </div>
         </div>
       </div>

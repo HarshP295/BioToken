@@ -2,6 +2,24 @@
 import { Link, useLocation } from 'react-router-dom';
 import { Activity, PlusCircle, Shield, Search, Menu, X } from 'lucide-react';
 import { useState } from 'react';
+import { useAuth } from '../hooks/useAuth';
+
+export function ConnectWalletButton() {
+  const { login, logout, authenticated, user, ready } = useAuth()
+
+  if (!ready) return <button className="btn btn-chain" disabled style={{ padding: '0.45rem 1.1rem', fontSize: '0.78rem' }}>Loading...</button>
+
+  if (authenticated) return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ fontSize: 13, color: '#6b7280' }}>
+        {user?.email?.address ?? user?.wallet?.address?.slice(0, 6) + '...'}
+      </span>
+      <button onClick={logout} className="btn btn-chain btn-outline" style={{ padding: '0.45rem 1.1rem', fontSize: '0.78rem' }}>Sign out</button>
+    </div>
+  )
+
+  return <button onClick={login} className="btn btn-chain" style={{ padding: '0.45rem 1.1rem', fontSize: '0.78rem' }}>Connect Wallet</button>
+}
 
 function BioTokenLogo() {
   return (
@@ -97,29 +115,7 @@ export default function Navbar({ account, connectWallet, isConnecting }) {
 
           {/* Wallet + Mobile Toggle */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            {account ? (
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: '0.5rem',
-                fontFamily: 'var(--font-mono)', fontSize: '0.78rem', fontWeight: 600,
-                color: 'var(--text)',
-                background: 'rgba(0,200,150,0.06)',
-                border: '1px solid rgba(0,200,150,0.22)',
-                borderRadius: 'var(--radius-full)',
-                padding: '0.4rem 1rem',
-              }}>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--accent)', display: 'inline-block', animation: 'pulseDot 1.5s ease-in-out infinite' }} />
-                {formatAddress(account)}
-              </div>
-            ) : (
-              <button
-                className="btn btn-chain"
-                onClick={connectWallet}
-                disabled={isConnecting}
-                style={{ padding: '0.45rem 1.1rem', fontSize: '0.78rem' }}
-              >
-                {isConnecting ? 'Connecting…' : 'Connect Wallet'}
-              </button>
-            )}
+            <ConnectWalletButton />
 
             {/* Mobile hamburger */}
             <button

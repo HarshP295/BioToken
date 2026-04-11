@@ -4,6 +4,12 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Send, CheckCircle2, Info, ShieldCheck, Beaker } from 'lucide-react';
 import StatusBadge, { STAGES } from '../components/StatusBadge';
 
+import { useAuth } from '../hooks/useAuth';
+import { useWallets } from '@privy-io/react-auth';
+import { ethers } from 'ethers';
+import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
+import { useGaslessContract } from '../hooks/useGaslessContract';
+
 const LIFECYCLE = [
   { id: 0, label: 'Minted',              color: 'var(--chain)',   action: 'transfer', actionLabel: 'Transit to Lab', icon: <Send size={13} /> },
   { id: 1, label: 'In Transit',          color: 'var(--warning)', action: 'receive',  actionLabel: 'Confirm Receipt', icon: <CheckCircle2 size={13} /> },
@@ -12,21 +18,44 @@ const LIFECYCLE = [
   { id: 4, label: 'Consumed',            color: 'var(--alert)',    action: null, actionLabel: null },
 ];
 
-export default function TokenDetails({ contract, account }) {
+export default function TokenDetails({ contract }) {
   const [searchParams] = useSearchParams();
   const tokenId = searchParams.get('id');
+
+  const { ready, authenticated, user, createWallet } = useAuth();
+  const { wallets } = useWallets();
+  const wallet = wallets[0];
+  const account = wallet?.address || user?.wallet?.address;
 
   const [token,         setToken]         = useState(null);
   const [loading,       setLoading]       = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error,         setError]         = useState('');
 
+  const getActiveContract = async () => {
+    let activeContract = contract;
+    if (!activeContract) {
+      // For read-only calls we only need a public provider but if authenticated, we get the signer
+      if (wallet) {
+        const provider = await wallet.getEthereumProvider();
+        const browserProvider = new ethers.BrowserProvider(provider);
+        const signer = await browserProvider.getSigner();
+        activeContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+      } else {
+        const fallbackProvider = new ethers.JsonRpcProvider("https://rpc-amoy.polygon.technology");
+        activeContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, fallbackProvider);
+      }
+    }
+    return activeContract;
+  };
+
   const loadData = async () => {
-    if (!contract || !tokenId) return;
+    if (!tokenId) return;
     try {
       setLoading(true); setError('');
-      const owner = await contract.ownerOf(tokenId);
-      const data  = await contract.getTokenData(tokenId);
+      const activeContract = await getActiveContract();
+      const owner = await activeContract.ownerOf(tokenId);
+      const data  = await activeContract.getTokenData(tokenId);
       setToken({
         id: tokenId, owner,
         batchId: data.batchId,
@@ -42,18 +71,33 @@ export default function TokenDetails({ contract, account }) {
     }
   };
 
-  useEffect(() => { if (contract) loadData(); }, [contract, tokenId]);
+  useEffect(() => { loadData(); }, [contract, tokenId, wallet]);
 
   const handleAction = async (actionType) => {
     try {
       setActionLoading(true);
+      if (!wallet) {
+        if (createWallet && !user?.wallet) {
+          try {
+            await createWallet();
+            return;
+          } catch (err) {
+            alert('Failed to connect wallet');
+            return;
+          }
+        }
+        alert('No active wallet found. Please refresh or log in again.');
+        return;
+      }
+      
+      const activeContract = await getActiveContract();
       let tx;
       if (actionType === 'transfer') {
-        tx = await contract.transferCustody(tokenId, '0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199');
+        tx = await activeContract.transferCustody(tokenId, '0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199');
       } else if (actionType === 'receive') {
-        tx = await contract.confirmReceipt(tokenId);
+        tx = await activeContract.confirmReceipt(tokenId);
       } else if (actionType === 'consume') {
-        tx = await contract.consumeToken(tokenId);
+        tx = await activeContract.consumeToken(tokenId);
       }
       await tx.wait();
       await loadData();
@@ -210,9 +254,9 @@ export default function TokenDetails({ contract, account }) {
           </div>
         </div>
 
-        {!account && (
+        {!authenticated && (
           <div className="alert-banner alert-banner--warning" style={{ marginTop: '1.5rem' }}>
-            <Info size={16} /> Connect your wallet to perform lifecycle actions on this token.
+            <Info size={16} /> Log in to perform lifecycle actions on this token.
           </div>
         )}
       </div>

@@ -1,7 +1,6 @@
-require("dotenv").config();
 require("@nomicfoundation/hardhat-toolbox");
+require("dotenv").config();
 
-/** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   solidity: {
     version: "0.8.28",
@@ -11,15 +10,13 @@ module.exports = {
         enabled: true,
         runs: 200,
       },
-    },
+    }
   },
   networks: {
     amoy: {
-      url: process.env.AMOY_RPC_URL || "",
-      accounts:
-        process.env.PRIVATE_KEY && /^(0x)?[0-9a-fA-F]{64}$/.test(process.env.PRIVATE_KEY)
-          ? [process.env.PRIVATE_KEY.startsWith("0x") ? process.env.PRIVATE_KEY : `0x${process.env.PRIVATE_KEY}`]
-          : [],
+      url: "https://rpc-amoy.polygon.technology",
+      accounts: [process.env.DEPLOYER_PRIVATE_KEY],
+      chainId: 80002,
     },
   },
 };

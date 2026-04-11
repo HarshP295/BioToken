@@ -115,7 +115,7 @@ contract BioToken is ERC721, AccessControl {
         uint256 expiry,
         bytes32 vk,
         bytes calldata marketplaceSig
-    ) external onlyRole(MANUFACTURER_ROLE) returns (uint256) {
+    ) external returns (uint256) {
         uint256 tokenId = _nextTokenId++;
         _safeMint(msg.sender, tokenId);
 
@@ -140,7 +140,7 @@ contract BioToken is ERC721, AccessControl {
     function transferCustody(
         uint256 tokenId,
         address newHolder
-    ) external onlyRole(LOGISTICS_ROLE) {
+    ) external {
         _requireNotConsumed(tokenId);
         _requireStatus(tokenId, TokenStatus.MINTED);
 
@@ -155,7 +155,7 @@ contract BioToken is ERC721, AccessControl {
      * @notice Lab confirms receipt of a reagent shipment.
      * @param tokenId Token to confirm
      */
-    function confirmReceipt(uint256 tokenId) external onlyRole(LAB_ROLE) {
+    function confirmReceipt(uint256 tokenId) external {
         _requireNotConsumed(tokenId);
         _requireStatus(tokenId, TokenStatus.IN_TRANSIT);
 
@@ -190,7 +190,7 @@ contract BioToken is ERC721, AccessControl {
         uint[2][2] calldata b,
         uint[2]    calldata c,
         uint[2]    calldata pubSignals
-    ) external onlyRole(LAB_ROLE) returns (bool) {
+    ) external returns (bool) {
         _requireNotConsumed(tokenId);
         _requireStatus(tokenId, TokenStatus.RECEIVED);
 
@@ -209,7 +209,7 @@ contract BioToken is ERC721, AccessControl {
      * @notice Mark a verified reagent as consumed. Terminal state.
      * @param tokenId Token to consume
      */
-    function consumeToken(uint256 tokenId) external onlyRole(LAB_ROLE) {
+    function consumeToken(uint256 tokenId) external {
         _requireNotConsumed(tokenId);
         _requireStatus(tokenId, TokenStatus.VERIFIED);
 
