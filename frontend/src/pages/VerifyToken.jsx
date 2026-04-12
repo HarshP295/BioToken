@@ -118,15 +118,6 @@ export default function VerifyToken({ contract }) {
     e.preventDefault();
     if (!authenticated) { setError('Please log in.'); return; }
     if (!wallet) {
-      if (createWallet && !user?.wallet) {
-        try {
-          await createWallet();
-          return;
-        } catch (err) {
-          setError('Failed to create an embedded wallet. Please log out and log in again.');
-          return;
-        }
-      }
       setError('No active wallet found. Please refresh or re-login.');
       return;
     }
@@ -135,51 +126,68 @@ export default function VerifyToken({ contract }) {
       setLoading(true); setError(''); setAiResult(null);
       setStep(1);
 
-      let activeContract = contract;
-      if (!activeContract) {
-        setLoading(true);
+      // Parse the 10 HPLC peaks from the form input
+      const peaks = peaksStr
+        .split(',')
+        .map(v => parseFloat(v.trim()))
+        .filter(v => !isNaN(v))
+
+      if (peaks.length !== 10) {
+        setError('Please enter exactly 10 comma-separated HPLC peak values.')
+        setLoading(false); setStep(0); return
       }
 
-      const peaks = peaksStr.split(',').map(s => parseInt(s.trim()));
+      // Step 1A: Convert peaks to 137 model features via API
+      const featRes = await fetch(`${import.meta.env.VITE_AI_API_URL}/compute-features`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ peaks })   // no observed_rt — API computes it
+      })
+      if (!featRes.ok) throw new Error('Feature computation failed')
+      const { observed_features, observed_rt: computed_rt } = await featRes.json()
 
-      // 1. AI PRE-SCREEN
-      await new Promise(r => setTimeout(r, 900));
-      const aiRes = aiPreScreen(peaks, threshold);
-      setAiResult(aiRes);
+      // Step 1B: Run AI classifier
+      const verifyRes = await fetch(`${import.meta.env.VITE_AI_API_URL}/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          observed_features,
+          observed_rt: computed_rt,
+          token_id: Number(tokenId)
+        })
+      })
+      if (!verifyRes.ok) throw new Error('AI verification failed')
+      const fetchedAiResult = await verifyRes.json()
+      console.log('AI Result:', fetchedAiResult)
+      setAiResult(fetchedAiResult)
 
-      if (!aiRes.genuine) { setLoading(false); return; }
+      if (!fetchedAiResult.genuine) {
+        setLoading(false)
+        setStep(0)
+        return
+      }
 
-      // 2. ZK PROOF (pre-computed valid proof from integrate.js output)
-      setStep(2);
-      await new Promise(r => setTimeout(r, 1600));
+      // Step 2: Generate ZK proof (from AI result)
+      setStep(2)
+      await new Promise(r => setTimeout(r, 800))
 
-      const proof = {
-        a: [
-          '4777844671232050108953442715308197667734048965470351746427056976856623146688',
-          '11856247079383004015968103073903269621395622119538017248761465471481665201298',
-        ],
-        b: [
-          ['10783320587903247978563503376773635339963206777030142223344523265274185317157', '19122068484625028672507584130218438542386448365989176569041575814969182125693'],
-          ['19907685149344304200770954608074063210681941876754680870511266607776314181068', '8830045404300893224887161484622980231758532746422421823662904287301805401734'],
-        ],
-        c: [
-          '18422412737604342025128268278138609633972625395678652985093054094339704163068',
-          '7786008442037180193308190909843519701454404373230373769621527139433762533005',
-        ],
-      };
-      const pubSignals = ['1', '10'];
+      // Step 3: Submit on-chain via Pimlico
+      setStep(3)
+      
+      // Demo verification — AI result is genuine, submit on-chain
+      // verifyDemo() skips Groth16 math for capstone demo
+      // Production: replace with verifyProof() + real snarkjs proof
+      await sendGaslessTx('verifyDemo', [BigInt(tokenId)])
+      console.log('✓ Token verified on-chain!')
 
-      // 3. ON-CHAIN VERIFICATION
-      setStep(3);
-      await sendGaslessTx('verifyProof', [tokenId, proof.a, proof.b, proof.c, pubSignals]);
+      navigate(`/details?id=${tokenId}`)
 
-      navigate(`/details?id=${tokenId}`);
     } catch (err) {
-      console.error(err);
-      setError(err.reason || err.message || 'Verification failed.');
-      setStep(0);
+      console.error('Verification failed:', err)
+      setError(err.reason || err.message || 'Verification failed.')
+      setStep(0)
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
   };
 

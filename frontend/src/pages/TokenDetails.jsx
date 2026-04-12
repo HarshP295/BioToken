@@ -1,7 +1,7 @@
 // frontend/src/pages/TokenDetails.jsx
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Send, CheckCircle2, Info, ShieldCheck, Beaker } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Send, CheckCircle2, Info, ShieldCheck, Beaker, ShieldAlert } from 'lucide-react';
 import StatusBadge, { STAGES } from '../components/StatusBadge';
 
 import { useAuth } from '../hooks/useAuth';
@@ -73,41 +73,54 @@ export default function TokenDetails({ contract }) {
 
   useEffect(() => { loadData(); }, [contract, tokenId, wallet]);
 
+  const { sendGaslessTx, loading: gaslessLoading } = useGaslessContract();
+
   const handleAction = async (actionType) => {
-    try {
-      setActionLoading(true);
-      if (!wallet) {
-        if (createWallet && !user?.wallet) {
-          try {
-            await createWallet();
-            return;
-          } catch (err) {
-            alert('Failed to connect wallet');
-            return;
-          }
-        }
-        alert('No active wallet found. Please refresh or log in again.');
-        return;
-      }
-      
-      const activeContract = await getActiveContract();
-      let tx;
-      if (actionType === 'transfer') {
-        tx = await activeContract.transferCustody(tokenId, '0x8626f6940E2eb28930eFb4CeF49B2d1F2C9C1199');
-      } else if (actionType === 'receive') {
-        tx = await activeContract.confirmReceipt(tokenId);
-      } else if (actionType === 'consume') {
-        tx = await activeContract.consumeToken(tokenId);
-      }
-      await tx.wait();
-      await loadData();
-    } catch (err) {
-      console.error(err);
-      alert(err.reason || err.message);
-    } finally {
-      setActionLoading(false);
+    if (!authenticated) {
+      alert('Please log in first.')
+      return
     }
-  };
+    if (!wallet) {
+      alert('No wallet found. Please refresh or log in again.')
+      return
+    }
+
+    try {
+      setActionLoading(true)
+      setError('')
+
+      if (actionType === 'transfer') {
+        // Transfer custody to the deployer/logistics address
+        // In production this would be the courier's address
+        await sendGaslessTx('transferCustody', [
+          BigInt(tokenId),
+          '0xbb6E66Fb872cFd173d12a402b11316aab72189B4'
+        ])
+
+      } else if (actionType === 'receive') {
+        await sendGaslessTx('confirmReceipt', [BigInt(tokenId)])
+
+      } else if (actionType === 'consume') {
+        const confirmed = window.confirm(
+          'Are you sure you want to consume this reagent? This action is irreversible and the token will be permanently marked as CONSUMED.'
+        )
+        if (!confirmed) {
+          setActionLoading(false)
+          return
+        }
+        await sendGaslessTx('consumeToken', [BigInt(tokenId)])
+      }
+
+      // Reload token data after action
+      await loadData()
+
+    } catch (err) {
+      console.error('Action failed:', err)
+      setError(err.reason || err.message || 'Transaction failed.')
+    } finally {
+      setActionLoading(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -140,8 +153,8 @@ export default function TokenDetails({ contract }) {
           <Link to="/dashboard" className="btn btn-outline" style={{ padding: '0.5rem 1rem', fontSize: '0.78rem' }}>
             <ArrowLeft size={14} /> Dashboard
           </Link>
-          <button onClick={loadData} disabled={actionLoading} className="btn btn-secondary" style={{ padding: '0.5rem 1rem' }}>
-            <RefreshCw size={14} className={actionLoading ? 'animate-spin' : ''} />
+          <button onClick={loadData} disabled={actionLoading || gaslessLoading} className="btn btn-secondary" style={{ padding: '0.5rem 1rem' }}>
+            <RefreshCw size={14} className={actionLoading || gaslessLoading ? 'animate-spin' : ''} />
           </button>
         </div>
 
@@ -242,7 +255,7 @@ export default function TokenDetails({ contract }) {
                           className="btn btn-outline"
                           style={{ padding: '0.4rem 1rem', fontSize: '0.76rem' }}
                           onClick={() => handleAction(stage.action)}
-                          disabled={actionLoading}
+                          disabled={actionLoading || gaslessLoading}
                         >
                           {stage.icon} {stage.actionLabel}
                         </button>
@@ -253,6 +266,12 @@ export default function TokenDetails({ contract }) {
             })}
           </div>
         </div>
+
+        {error && (
+          <div className="alert-banner alert-banner--error" style={{ marginTop: '1rem' }}>
+            <ShieldAlert size={16} style={{ flexShrink: 0 }} /> {error}
+          </div>
+        )}
 
         {!authenticated && (
           <div className="alert-banner alert-banner--warning" style={{ marginTop: '1.5rem' }}>

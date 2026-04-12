@@ -206,6 +206,17 @@ contract BioToken is ERC721, AccessControl {
     }
 
     /**
+     * @notice Demo-only: mark token as verified without ZK proof.
+     *         Replace with real verifyProof() before production.
+     */
+    function verifyDemo(uint256 tokenId) external {
+        _requireNotConsumed(tokenId);
+        _requireStatus(tokenId, TokenStatus.RECEIVED);
+        _tokenData[tokenId].status = TokenStatus.VERIFIED;
+        emit TokenVerified(tokenId);
+    }
+
+    /**
      * @notice Mark a verified reagent as consumed. Terminal state.
      * @param tokenId Token to consume
      */

@@ -1,18 +1,8 @@
 import { useState } from 'react'
 import { useWallets } from '@privy-io/react-auth'
 import { createSmartClient } from '../lib/pimlico'
-import { encodeFunctionData, parseAbi } from 'viem'
-
-const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS
-
-const CONTRACT_ABI = parseAbi([
-  'function mintToken(string batchId, uint256 expiry, bytes32 vk, bytes marketplaceSig) returns (uint256)',
-  'function transferCustody(uint256 tokenId, address newHolder)',
-  'function confirmReceipt(uint256 tokenId)',
-  'function verifyProof(uint256 tokenId, uint[2] a, uint[2][2] b, uint[2] c, uint[2] pubSignals) returns (bool)',
-  'function consumeToken(uint256 tokenId)',
-  'function getTokenData(uint256 tokenId) view returns ((string batchId, uint256 expiry, bytes32 verificationKey, uint8 status, bytes marketplaceSig))'
-])
+import { encodeFunctionData } from 'viem'
+import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../config'
 
 export function useGaslessContract() {
   const { wallets } = useWallets()
@@ -55,6 +45,12 @@ export function useGaslessContract() {
     }
   }
 
-  return { sendGaslessTx, loading, error }
-}
+  const mintBatch = async ({ batchId, daysUntilExpiry }) => {
+    const expiry = BigInt(Math.floor(Date.now() / 1000) + daysUntilExpiry * 86400)
+    const vk = '0x0000000000000000000000000000000000000000000000000000000000000000'
+    const marketplaceSig = '0x'
+    return sendGaslessTx('mintToken', [batchId, expiry, vk, marketplaceSig])
+  }
 
+  return { sendGaslessTx, mintBatch, loading, error }
+}

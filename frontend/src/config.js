@@ -1,9 +1,10 @@
 // frontend/src/config.js
-import BioTokenDeploy from "../../deployments/hardhat.json"; // We'll default to local hardhat for dev
+import BioTokenArtifact from "../../artifacts/contracts/BioToken.sol/BioToken.json";
+
 // We can dynamically load amoy.json based on environment later if needed.
 
-export const CONTRACT_ADDRESS = BioTokenDeploy.BioToken.address;
-export const CONTRACT_ABI = BioTokenDeploy.BioToken.abi;
+export const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS;
+export const CONTRACT_ABI = BioTokenArtifact.abi;
 
 export const CHAIN_OPTIONS = {
     // Polygon Amoy Testnet
@@ -24,4 +25,4 @@ export const CHAIN_OPTIONS = {
 };
 
 // Toggle this to 80002 for production
-export const TARGET_CHAIN_ID = 31337; 
+export const TARGET_CHAIN_ID = 80002; 
