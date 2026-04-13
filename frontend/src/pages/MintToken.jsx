@@ -351,8 +351,7 @@ export default function MintToken({ contract }) {
   const { ready, authenticated } = useAuth();
   const { wallets } = useWallets();
   const wallet    = wallets[0];
-  const { mintBatch, loading, error: gaslessError } = useGaslessContract();
-  const [internalLoading, setInternalLoading] = useState(false);
+  const { mintBatch, loading, isGeneratingProof, error: gaslessError } = useGaslessContract();
   const [error,    setError]    = useState('');
   const [fpFile,   setFpFile]   = useState(null);
   const [formData, setFormData] = useState({
@@ -364,22 +363,21 @@ export default function MintToken({ contract }) {
     e.preventDefault();
     if (!authenticated) { setError('Please log in first.'); return; }
     try {
-      setInternalLoading(true); setError('');
+      setError('');
       const receipt = await mintBatch({
-        batchId:        formData.batchId,
+        batchId:         formData.batchId,
         daysUntilExpiry: Number(formData.expiryDays),
+        hplcFile:        fpFile,   // null = demo fallback inside hook
       });
       console.log('✓ Minted!', receipt);
       navigate('/dashboard');
     } catch (err) {
       console.error('Mint failed:', err.message);
       setError(err.reason || err.message || 'Minting failed.');
-    } finally {
-      setInternalLoading(false);
     }
   };
 
-  const isBusy = loading || internalLoading;
+  const isBusy = loading || isGeneratingProof;
 
   return (
     <>
@@ -496,7 +494,18 @@ export default function MintToken({ contract }) {
                 e.currentTarget.style.boxShadow  = isBusy || !authenticated ? 'none' : '0 8px 28px rgba(0,200,150,0.25)';
               }}
             >
-              {isBusy ? (
+              {isGeneratingProof ? (
+                <>
+                  <div style={{
+                    width: 18, height: 18,
+                    border: '2px solid rgba(255,255,255,0.4)',
+                    borderTop: '2px solid #fff',
+                    borderRadius: '50%',
+                    animation: 'spin 0.8s linear infinite',
+                  }} />
+                  Securing Batch Data…
+                </>
+              ) : loading ? (
                 <>
                   <div style={{
                     width: 18, height: 18,
