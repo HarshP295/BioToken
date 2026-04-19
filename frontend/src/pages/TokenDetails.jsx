@@ -1,8 +1,9 @@
 // frontend/src/pages/TokenDetails.jsx
 import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Send, CheckCircle2, Info, ShieldCheck, Beaker, ShieldAlert } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Send, CheckCircle2, Info, ShieldCheck, Beaker, ShieldAlert, Copy, Check } from 'lucide-react';
 import StatusBadge, { STAGES } from '../components/StatusBadge';
+import { useZKProof } from '../zkp/useZKProof';
 
 import { useAuth } from '../hooks/useAuth';
 import { useWallets } from '@privy-io/react-auth';
@@ -31,6 +32,15 @@ export default function TokenDetails({ contract }) {
   const [loading,       setLoading]       = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error,         setError]         = useState('');
+  const [copied,        setCopied]        = useState(false);
+
+  // ── ZK proof hook (declarative — runs automatically for verified tokens) ──
+  const { commitment: zkCommitment, isVerified: zkVerified, isLoading: zkLoading } = useZKProof(
+    token?.id,
+    token?.batchId,
+    token?.rawExpiry,
+    token?.status
+  );
 
   const getActiveContract = async () => {
     let activeContract = contract;
@@ -60,6 +70,7 @@ export default function TokenDetails({ contract }) {
         id: tokenId, owner,
         batchId: data.batchId,
         expiry: new Date(Number(data.expiry) * 1000).toLocaleString(),
+        rawExpiry: data.expiry,
         status: Number(data.status),
         vkHash: data.verificationKey,
       });
@@ -72,6 +83,17 @@ export default function TokenDetails({ contract }) {
   };
 
   useEffect(() => { loadData(); }, [contract, tokenId, wallet]);
+
+
+
+  // Copy commitment to clipboard
+  const handleCopyCommitment = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* clipboard not available */ }
+  };
 
   const { sendGaslessTx, loading: gaslessLoading } = useGaslessContract();
 
@@ -189,17 +211,77 @@ export default function TokenDetails({ contract }) {
             </div>
           </div>
 
-          {token.vkHash && (
-            <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
-              <div className="form-label" style={{ marginBottom: '0.35rem' }}>Verification Key Commitment</div>
+          {/* ── VK Commitment with real Poseidon hash ── */}
+          <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
+            <div className="form-label" style={{ marginBottom: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              Verification Key Commitment
+              <span
+                style={{
+                  position: 'relative',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  cursor: 'help',
+                }}
+                title="Poseidon hash of reagent fingerprint — Groth16 verified"
+              >
+                <Info size={13} style={{ color: 'var(--text-faint)', opacity: 0.6 }} />
+              </span>
+            </div>
+
+            {zkLoading ? (
+              <div style={{
+                fontFamily: 'var(--font-mono)', fontSize: '0.76rem', color: 'var(--text-muted)',
+                background: 'var(--surface-alt)', padding: '0.75rem 1rem',
+                borderRadius: 'var(--radius-md)', border: '1px solid var(--border)',
+                fontStyle: 'italic',
+              }}>
+                Generating ZK commitment...
+              </div>
+            ) : (
               <div style={{
                 fontFamily: 'var(--font-mono)', fontSize: '0.76rem', color: 'var(--text-muted)',
                 background: 'var(--surface-alt)', padding: '0.75rem 1rem',
                 borderRadius: 'var(--radius-md)', border: '1px solid var(--border)',
                 wordBreak: 'break-all', lineHeight: 1.6,
-              }}>{token.vkHash}</div>
-            </div>
-          )}
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                gap: '0.5rem',
+              }}>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  {zkCommitment || token.vkHash || '0x' + '0'.repeat(64)}
+                </span>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    handleCopyCommitment(zkCommitment || token.vkHash || '');
+                  }}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: copied ? 'var(--accent)' : 'var(--text-faint)',
+                    padding: '4px', borderRadius: '4px',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    transition: 'color 0.2s',
+                    flexShrink: 0,
+                  }}
+                  title="Copy commitment hash"
+                >
+                  {copied ? <Check size={14} /> : <Copy size={14} />}
+                </button>
+              </div>
+            )}
+
+            {zkVerified && !zkLoading && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '0.4rem',
+                marginTop: '0.5rem',
+                fontFamily: 'var(--font-mono)', fontSize: '0.68rem',
+                color: 'var(--accent-dim)',
+              }}>
+                <ShieldCheck size={13} />
+                Groth16 proof verified
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Lifecycle */}

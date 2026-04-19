@@ -195,7 +195,7 @@ export function useGaslessContract() {
       const { smartClient } = await createSmartClient(wallet)
 
       const calldata = encodeFunctionData({
-        abi: CONTRACT_ADDRESS,
+        abi: CONTRACT_ABI,
         functionName,
         args,
       })
