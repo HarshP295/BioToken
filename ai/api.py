@@ -1,10 +1,11 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import sys, os, numpy as np
+import sys, os, numpy as np, io, csv
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 from verifier import verify_reagent, FEATURES
+from peaks_extractor import extract_peaks, peaks_from_intensities
 
 app = FastAPI()
 app.add_middleware(
@@ -33,7 +34,15 @@ class VerifyResponse(BaseModel):
     observed_rt: float
     pct_deviation: float
     result: str
-    zk_proof: dict
+
+class ProofRequest(BaseModel):
+    peaks: list[int]       # 10 integer peak values for the circuit
+    threshold: int = 10    # tolerance value
+
+class ProofResponse(BaseModel):
+    success: bool
+    proof: dict
+    publicSignals: list[str]
 
 def peaks_to_features(peaks: list[float], threshold: float = 10) -> tuple[list[float], float]:
     """
@@ -107,14 +116,223 @@ async def verify(req: VerifyRequest):
     
     result = verify_reagent(req.observed_features, req.observed_rt)
 
-    # Dummy ZK proof — real snarkjs integration is Week 8
-    dummy_proof = {
-        "pi_a": ["1", "2"],
-        "pi_b": [["3", "4"], ["5", "6"]],
-        "pi_c": ["7", "8"],
-        "pubSignals": ["1", "500"]
+    # Return only AI decision — no dummy proof data
+    return VerifyResponse(**result)
+
+@app.post("/generate-proof")
+async def generate_proof_endpoint(req: ProofRequest):
+    """
+    Server-side ZK proof generation (fallback path).
+    Primary proof generation is client-side in the browser.
+    Requires Node.js + snarkjs in PATH.
+    """
+    if len(req.peaks) != 10:
+        raise HTTPException(400, "Exactly 10 peak values required")
+
+    try:
+        from prover import generate_proof
+        proof_data = generate_proof(req.peaks, req.threshold)
+        return {
+            "success": True,
+            "proof": proof_data["proof"],
+            "publicSignals": proof_data["publicSignals"],
+        }
+    except ImportError:
+        raise HTTPException(
+            500,
+            "prover module not available — use client-side proof generation"
+        )
+    except RuntimeError as e:
+        raise HTTPException(500, str(e))
+
+# ── Constants matching frontend circuit config ──────────────────────────────
+MAX_PEAK   = 255
+MAX_THRESH = 255
+N_PEAKS    = 10
+
+@app.post("/extract-peaks")
+async def extract_peaks_endpoint(file: UploadFile = File(...)):
+    """
+    Accept a CSV file upload and return extracted peaks + dynamic threshold.
+    Mirrors the manufacturer-side parseHplcFile logic so the lab gets
+    identical processing. Runs peaks_extractor on the server side.
+    """
+    if not file.filename.lower().endswith('.csv'):
+        raise HTTPException(400, "Only .csv files are accepted")
+
+    try:
+        raw = (await file.read()).decode("utf-8")
+        all_rows = [r.strip() for r in raw.splitlines() if r.strip()]
+
+        # Strip header rows containing letters
+        data_rows = [r for r in all_rows if not any(c.isalpha() for c in r)]
+        if not data_rows:
+            raise HTTPException(400, "CSV file contains no numeric rows")
+
+        first_cols = [v.strip() for v in data_rows[0].split(",")]
+
+        peaks = []
+
+        import re
+
+        if len(first_cols) >= 2 and len(data_rows) > N_PEAKS:
+            # ── Multi-row chromatogram: columns are (time, intensity, ...) ──
+            intensities = []
+            for r in data_rows:
+                cols = r.split(",")
+                val = cols[1].strip() if len(cols) >= 2 else cols[0].strip()
+                val = val.strip('"\'')  # removing quotes
+                m = re.match(r'[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?', val)
+                if m:
+                    intensities.append(float(m.group(0)))
+
+            if len(intensities) < N_PEAKS:
+                # Debug info to understand what was received
+                raise HTTPException(400, f"Not enough data points: found {len(intensities)} from {len(data_rows)} rows. First val was: {val if data_rows else 'N/A'}")
+
+            # Find local peaks (points higher than both neighbors)
+            local_peaks = []
+            for i in range(1, len(intensities) - 1):
+                if intensities[i] > intensities[i - 1] and intensities[i] > intensities[i + 1]:
+                    local_peaks.append(intensities[i])
+
+            # Sort descending, take top N_PEAKS
+            local_peaks.sort(reverse=True)
+            top_peaks = local_peaks[:N_PEAKS]
+
+            # Normalize to [0, MAX_PEAK]
+            max_val = max(top_peaks) if top_peaks else 1e-9
+            peaks = [round((v / max_val) * MAX_PEAK) for v in top_peaks]
+
+        else:
+            # ── Single-row CSV: all peaks on one row ──
+            raw_vals = [v.strip().strip('"\'') for v in data_rows[0].split(",")]
+            peaks = []
+            for v in raw_vals:
+                if v:
+                    m = re.match(r'[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?', v)
+                    if m:
+                        peaks.append(int(round(float(m.group(0)))))
+
+        # ── Normalize to exactly N_PEAKS ──
+        peaks = [v for v in peaks if not (v != v)]  # remove NaN
+        if not peaks:
+            raise HTTPException(400, "No valid numeric peak values found in CSV")
+
+        if len(peaks) > N_PEAKS:
+            peaks = peaks[:N_PEAKS]
+
+        while len(peaks) < N_PEAKS:
+            mean_val = sum(peaks) / len(peaks)
+            peaks.append(round(mean_val))
+
+        # Clamp to [0, MAX_PEAK]
+        peaks = [max(0, min(MAX_PEAK, v)) for v in peaks]
+
+        # ── Dynamic threshold (same as manufacturer side) ──
+        max_delta = 0
+        for i in range(len(peaks) - 1):
+            max_delta = max(max_delta, abs(peaks[i] - peaks[i + 1]))
+        threshold = min(MAX_THRESH, max(max_delta + 5, 50))
+
+        return {
+            "peaks": peaks,
+            "threshold": threshold,
+            "filename": file.filename,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Failed to extract peaks: {str(e)}")
+
+
+class RegisterRoleRequest(BaseModel):
+    wallet_address: str   # user's wallet address (hex)
+    role: str             # "manufacturer" or "lab"
+
+@app.post("/register-role")
+async def register_role(req: RegisterRoleRequest):
+    """
+    Register a user's role. If role is 'lab', grant LAB_ROLE on-chain
+    using the deployer's admin wallet.
+    """
+    role = req.role.lower().strip()
+    if role not in ("manufacturer", "lab"):
+        raise HTTPException(400, "Role must be 'manufacturer' or 'lab'")
+
+    if role == "lab":
+        try:
+            from web3 import Web3
+            import json as _json
+
+            # Load contract ABI from artifacts
+            artifacts_path = os.path.join(
+                os.path.dirname(__file__), "..",
+                "artifacts", "contracts", "BioToken.sol", "BioToken.json"
+            )
+            with open(artifacts_path) as f:
+                artifact = _json.load(f)
+
+            # Connect to Polygon Amoy
+            rpc_url = os.environ.get("AMOY_RPC_URL", "https://rpc-amoy.polygon.technology")
+            w3 = Web3(Web3.HTTPProvider(rpc_url))
+
+            contract_address = os.environ.get(
+                "VITE_CONTRACT_ADDRESS",
+                "0x9204D687ecB511ac0d69E450C36a6a476F7A9425"
+            )
+            contract = w3.eth.contract(
+                address=Web3.to_checksum_address(contract_address),
+                abi=artifact["abi"]
+            )
+
+            # Admin wallet (deployer has DEFAULT_ADMIN_ROLE)
+            admin_key = os.environ.get("DEPLOYER_PRIVATE_KEY")
+            if not admin_key:
+                raise HTTPException(500, "DEPLOYER_PRIVATE_KEY not configured")
+            admin_account = w3.eth.account.from_key(admin_key)
+
+            # Build + send grantLabRole transaction
+            lab_address = Web3.to_checksum_address(req.wallet_address)
+            tx = contract.functions.grantLabRole(lab_address).build_transaction({
+                "from": admin_account.address,
+                "nonce": w3.eth.get_transaction_count(admin_account.address),
+                "gas": 200_000,
+                "gasPrice": w3.eth.gas_price,
+                "chainId": 80002,  # Polygon Amoy
+            })
+            signed = admin_account.sign_transaction(tx)
+            tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
+
+            return {
+                "success": True,
+                "role": "lab",
+                "wallet": req.wallet_address,
+                "tx_hash": receipt.transactionHash.hex(),
+                "message": "LAB_ROLE granted on-chain",
+            }
+        except ImportError:
+            # web3 not installed — grant role anyway, admin can do manually
+            return {
+                "success": True,
+                "role": "lab",
+                "wallet": req.wallet_address,
+                "tx_hash": None,
+                "message": "Role registered (web3 not available — grant LAB_ROLE manually)",
+            }
+        except Exception as e:
+            raise HTTPException(500, f"Failed to grant LAB_ROLE: {str(e)}")
+
+    # Manufacturer — no on-chain action needed
+    return {
+        "success": True,
+        "role": "manufacturer",
+        "wallet": req.wallet_address,
+        "tx_hash": None,
+        "message": "Manufacturer role registered",
     }
-    return VerifyResponse(**result, zk_proof=dummy_proof)
 
 @app.get("/health")
 async def health():

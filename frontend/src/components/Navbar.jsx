@@ -1,8 +1,9 @@
 // frontend/src/components/Navbar.jsx
 import { Link, useLocation } from 'react-router-dom';
-import { Activity, PlusCircle, Shield, Search, Menu, X } from 'lucide-react';
+import { Activity, PlusCircle, Shield, Search, Menu, X, FlaskConical } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import { useRole } from '../hooks/useRole';
 
 export function ConnectWalletButton() {
   const { login, logout, authenticated, user, ready } = useAuth()
@@ -41,15 +42,32 @@ function BioTokenLogo() {
 export default function Navbar({ account, connectWallet, isConnecting }) {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const { role } = useRole();
 
-  const navLinks = [
-    { name: 'Dashboard', path: '/dashboard', icon: <Activity size={14} /> },
-    { name: 'Mint Batch', path: '/mint',      icon: <PlusCircle size={14} /> },
-    { name: 'Verify',   path: '/verify',       icon: <Shield size={14} /> },
-    { name: 'Lookup',   path: '/details',      icon: <Search size={14} /> },
+  // ── Role-aware navigation links ───────────────────────────────
+  const allLinks = [
+    // Manufacturer-only links
+    { name: 'Dashboard',  path: '/dashboard', icon: <Activity size={14} />,    roles: ['manufacturer'] },
+    { name: 'Mint Batch', path: '/mint',      icon: <PlusCircle size={14} />,  roles: ['manufacturer'] },
+    { name: 'Verify',     path: '/verify',    icon: <Shield size={14} />,      roles: ['manufacturer'] },
+    // Lab-only links
+    { name: 'Lab',        path: '/lab',       icon: <FlaskConical size={14} />,roles: ['lab'] },
+    // Shared links
+    { name: 'Lookup',     path: '/details',   icon: <Search size={14} />,      roles: ['manufacturer', 'lab'] },
   ];
 
-  const formatAddress = (addr) => `${addr.substring(0, 6)}…${addr.substring(addr.length - 4)}`;
+  // Filter by current role. If no role selected yet, show nothing (role selection screen handles it).
+  const navLinks = role
+    ? allLinks.filter(link => link.roles.includes(role))
+    : [];
+
+  // Role badge
+  const roleBadge = role === 'lab'
+    ? { label: 'LAB', color: '#00C896' }
+    : role === 'manufacturer'
+    ? { label: 'MFR', color: '#4F46E5' }
+    : null;
+
   const isActive = (path) => location.pathname === path;
 
   return (
@@ -85,6 +103,17 @@ export default function Navbar({ account, connectWallet, isConnecting }) {
               borderRadius: '9999px', padding: '0.1rem 0.5rem',
               letterSpacing: '0.08em', textTransform: 'uppercase',
             }}>v1.0</span>
+            {/* Role badge */}
+            {roleBadge && (
+              <span style={{
+                fontFamily: 'var(--font-mono)', fontSize: '0.58rem',
+                fontWeight: 700, color: roleBadge.color,
+                background: `${roleBadge.color}12`,
+                border: `1px solid ${roleBadge.color}30`,
+                borderRadius: '9999px', padding: '0.1rem 0.5rem',
+                letterSpacing: '0.1em', textTransform: 'uppercase',
+              }}>{roleBadge.label}</span>
+            )}
           </Link>
 
           {/* Desktop Nav Links */}

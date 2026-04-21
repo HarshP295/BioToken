@@ -74,7 +74,7 @@ contract BioToken is ERC721, AccessControl {
     event TokenMinted(uint256 indexed tokenId, string batchId, address indexed manufacturer);
     event CustodyTransferred(uint256 indexed tokenId, address indexed from, address indexed to);
     event TokenReceived(uint256 indexed tokenId, address indexed lab);
-    event TokenVerified(uint256 indexed tokenId);
+    event TokenVerified(uint256 indexed tokenId, address indexed lab);
     event TokenConsumed(uint256 indexed tokenId);
 
     // ──────────────────────────────────────────────
@@ -191,6 +191,7 @@ contract BioToken is ERC721, AccessControl {
         uint[2]    calldata c,
         uint[2]    calldata pubSignals
     ) external returns (bool) {
+        require(hasRole(LAB_ROLE, msg.sender), "BioToken: caller lacks LAB_ROLE");
         _requireNotConsumed(tokenId);
         _requireStatus(tokenId, TokenStatus.RECEIVED);
 
@@ -201,7 +202,12 @@ contract BioToken is ERC721, AccessControl {
         if (!valid) revert ZKProofInvalid(tokenId);
 
         _tokenData[tokenId].status = TokenStatus.VERIFIED;
-        emit TokenVerified(tokenId);
+
+        // Transfer ownership to the verifying lab
+        address currentOwner = ownerOf(tokenId);
+        _transfer(currentOwner, msg.sender, tokenId);
+
+        emit TokenVerified(tokenId, msg.sender);
         return true;
     }
 
@@ -213,7 +219,25 @@ contract BioToken is ERC721, AccessControl {
         _requireNotConsumed(tokenId);
         _requireStatus(tokenId, TokenStatus.RECEIVED);
         _tokenData[tokenId].status = TokenStatus.VERIFIED;
-        emit TokenVerified(tokenId);
+        emit TokenVerified(tokenId, msg.sender);
+    }
+
+    /**
+     * @notice Grant LAB_ROLE to an address. Admin only.
+     * @param lab Address to grant the role to
+     */
+    function grantLabRole(address lab) external {
+        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "BioToken: admin only");
+        grantRole(LAB_ROLE, lab);
+    }
+
+    /**
+     * @notice Revoke LAB_ROLE from an address. Admin only.
+     * @param lab Address to revoke the role from
+     */
+    function revokeLabRole(address lab) external {
+        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "BioToken: admin only");
+        revokeRole(LAB_ROLE, lab);
     }
 
     /**

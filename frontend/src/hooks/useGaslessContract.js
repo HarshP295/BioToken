@@ -17,10 +17,11 @@
 
 import { useState } from 'react'
 import { ethers } from 'ethers'
-import { useWallets } from '@privy-io/react-auth'
+import { useWallets, usePrivy } from '@privy-io/react-auth'
 import { createSmartClient } from '../lib/pimlico'
 import { encodeFunctionData } from 'viem'
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../config'
+import { validateConsensus } from '../lib/consensusValidator'
 
 // ─── Static asset paths (served from /public by Vite) ──────────────────────
 const WASM_URL = '/fingerprint.wasm'
@@ -53,7 +54,7 @@ export async function parseHplcFile(file) {
   const text = await file.text()
 
   let peaks = []
-  let threshold = 10  // default tolerance — overridden if file provides it
+  let threshold = 50  // default tolerance — matches consensus ±50
 
   const ext = file.name.split('.').pop().toLowerCase()
 
@@ -69,11 +70,49 @@ export async function parseHplcFile(file) {
     if (parsed.threshold !== undefined) threshold = Number(parsed.threshold)
 
   } else if (ext === 'csv') {
-    // Accept the first non-empty, non-header row
-    const rows = text.split(/\r?\n/).filter(r => r.trim() && !/[a-zA-Z]/.test(r.trim()))
-    if (!rows.length) throw new Error('CSV file contains no numeric rows.')
-    peaks = rows[0].split(',').map(v => Number(v.trim()))
-    if (rows[1]) threshold = Number(rows[1].split(',')[0].trim()) || 10
+    const allRows = text.split(/\r?\n/).filter(r => r.trim())
+    // Strip header row(s) that contain letters
+    const dataRows = allRows.filter(r => !/[a-zA-Z]/.test(r))
+    if (!dataRows.length) throw new Error('CSV file contains no numeric rows.')
+
+    const firstCols = dataRows[0].split(',').map(v => v.trim())
+
+    if (firstCols.length >= 2 && dataRows.length > N_PEAKS) {
+      // Multi-row chromatogram: columns are (time, intensity, ...)
+      // Extract intensity values (2nd column) from all rows
+      const intensities = dataRows.map(r => {
+        const cols = r.split(',')
+        return parseFloat(cols[1]?.trim() ?? cols[0]?.trim())
+      }).filter(v => !isNaN(v))
+
+      // Find local peaks in the signal (points higher than both neighbors)
+      const localPeaks = []
+      for (let i = 1; i < intensities.length - 1; i++) {
+        if (intensities[i] > intensities[i - 1] && intensities[i] > intensities[i + 1]) {
+          localPeaks.push(intensities[i])
+        }
+      }
+
+      // Sort descending, take top N_PEAKS
+      localPeaks.sort((a, b) => b - a)
+      const topPeaks = localPeaks.slice(0, N_PEAKS)
+
+      // Normalize to integer range [0, MAX_PEAK]
+      const maxVal = Math.max(...topPeaks, 1e-9)
+      peaks = topPeaks.map(v => Math.round((v / maxVal) * MAX_PEAK))
+
+      // Compute threshold dynamically: max adjacent delta + safety margin
+      let maxDelta = 0
+      for (let i = 0; i < peaks.length - 1; i++) {
+        maxDelta = Math.max(maxDelta, Math.abs(peaks[i] - peaks[i + 1]))
+      }
+      threshold = Math.min(MAX_THRESH, Math.max(maxDelta + 5, 50))
+
+    } else {
+      // Single-row CSV: all peaks on one row (original behavior)
+      peaks = firstCols.map(Number)
+      if (dataRows[1]) threshold = Number(dataRows[1].split(',')[0].trim()) || 10
+    }
 
   } else {
     // TXT: space- or newline-separated numbers
@@ -83,13 +122,28 @@ export async function parseHplcFile(file) {
     }
   }
 
-  // Validate
-  if (peaks.length !== N_PEAKS) {
-    throw new Error(`Expected exactly ${N_PEAKS} peak values, got ${peaks.length}.`)
+  // ── Normalize to exactly N_PEAKS values ──────────────────────
+  // Pad with neighboring interpolation if fewer, truncate if more
+  peaks = peaks.filter(p => !isNaN(p))
+
+  if (peaks.length === 0) {
+    throw new Error('No valid numeric peak values found in file.')
   }
-  if (peaks.some(p => !Number.isInteger(p) || p < 0 || p > MAX_PEAK)) {
-    throw new Error(`All peak values must be integers between 0 and ${MAX_PEAK}.`)
+
+  if (peaks.length > N_PEAKS) {
+    // Take the first N_PEAKS values
+    peaks = peaks.slice(0, N_PEAKS)
   }
+
+  while (peaks.length < N_PEAKS) {
+    // Pad with the mean of existing peaks to keep deltas low
+    const mean = peaks.reduce((a, b) => a + b, 0) / peaks.length
+    peaks.push(Math.round(mean))
+  }
+
+  // Clamp to valid integer range [0, MAX_PEAK]
+  peaks = peaks.map(p => Math.max(0, Math.min(MAX_PEAK, Math.round(p))))
+
   if (!Number.isInteger(threshold) || threshold < 0 || threshold > MAX_THRESH) {
     threshold = Math.max(0, Math.min(MAX_THRESH, Math.round(threshold)))
   }
@@ -180,17 +234,26 @@ export function formatProofForContract(proof, publicSignals) {
 
 export function useGaslessContract() {
   const { wallets } = useWallets()
+  const { createWallet } = usePrivy()
   const [loading,           setLoading]           = useState(false)
   const [isGeneratingProof, setIsGeneratingProof] = useState(false)
   const [error,             setError]             = useState(null)
+  const [consensusResult,   setConsensusResult]   = useState(null)
 
   // ── Low-level gasless sender ─────────────────────────────────────────────
   const sendGaslessTx = async (functionName, args) => {
     setLoading(true)
     setError(null)
     try {
-      const wallet = wallets.find(w => w.walletClientType === 'privy') || wallets[0]
-      if (!wallet) throw new Error('No wallet found. Please log in.')
+      let wallet = wallets.find(w => w.walletClientType === 'privy') || wallets[0]
+      if (!wallet) {
+        if (createWallet) {
+          await createWallet()
+          throw new Error('Wallet created! Please submit again to continue.')
+        } else {
+          throw new Error('No wallet found. Please log in.')
+        }
+      }
 
       const { smartClient } = await createSmartClient(wallet)
 
@@ -234,6 +297,7 @@ export function useGaslessContract() {
    */
   const mintBatch = async ({ batchId, daysUntilExpiry, hplcFile }) => {
     setError(null)
+    setConsensusResult(null)
     const expiry = BigInt(Math.floor(Date.now() / 1000) + daysUntilExpiry * 86400)
 
     // ── Step 1: Parse HPLC inputs ────────────────────────────────────────
@@ -249,8 +313,23 @@ export function useGaslessContract() {
       // Demo fallback — tightly-clustered peaks that pass the threshold check
       circuitInputs = {
         peaks:     ['100','104','108','103','101','99','102','105','100','103'],
-        threshold: '10',
+        threshold: '50',
       }
+    }
+
+    // ── Step 1.5: Consensus validation against baseline peers ────────────
+    const peaksAsNumbers = circuitInputs.peaks.map(Number)
+    const consensus = validateConsensus(peaksAsNumbers)
+    setConsensusResult(consensus)
+
+    if (!consensus.passed) {
+      const failedInfo = consensus.perPeak
+        .filter(p => !p.ok)
+        .map(p => `Peak ${p.index}: ${p.submitted} vs mean ${p.mean} (Δ${p.delta})`)
+        .join('; ')
+      const msg = `Consensus validation failed — ${consensus.failedPeaks.length} peak(s) outside ±${consensus.tolerance} tolerance. ${failedInfo}`
+      setError(msg)
+      throw new Error(msg)
     }
 
     // ── Step 2: Client-side ZK proof generation ──────────────────────────
@@ -281,5 +360,6 @@ export function useGaslessContract() {
     loading,
     isGeneratingProof,
     error,
+    consensusResult,
   }
 }

@@ -10,6 +10,7 @@ import {
   CheckCircle2, Clock, Hash, Server,
 } from 'lucide-react';
 import { useGaslessContract } from '../hooks/useGaslessContract';
+import { getBaselinePeers, getPeerMeans } from '../lib/consensusValidator';
 import DNABackground from '../components/DNABackground';
 
 /* ── card wrapper ─────────────────────────────────────────────── */
@@ -59,59 +60,123 @@ function CardHeading({ children, withDot = false }) {
   );
 }
 
-/* ── Card 1: Validators ──────────────────────────────────────── */
-function ValidatorCard({ animDelay }) {
-  const validators = [
-    { name: 'Node A', location: 'Mumbai',    ok: true },
-    { name: 'Node B', location: 'Frankfurt', ok: true },
-    { name: 'Node C', location: 'Singapore', ok: true },
-  ];
+/* ── Card 1: Consensus Validators ──────────────────────────── */
+function ValidatorCard({ animDelay, consensusResult }) {
+  const peers = getBaselinePeers();
+  const means = getPeerMeans();
 
   return (
     <SectionCard animDelay={animDelay}>
       <CardHeading withDot>Consensus Validators</CardHeading>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
-        {validators.map(v => (
-          <div key={v.name} style={{
+
+      {/* Baseline peers */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.7rem', marginBottom: '1rem' }}>
+        {peers.map((p, i) => (
+          <div key={i} style={{
             display: 'flex', alignItems: 'center', gap: '0.75rem',
-            padding: '0.75rem 1rem',
+            padding: '0.6rem 0.85rem',
             background: 'rgba(0,200,150,0.04)',
             borderRadius: '10px',
             border: '1px solid rgba(0,200,150,0.12)',
           }}>
             <span style={{
               width: 8, height: 8, borderRadius: '50%',
-              background: '#00C896',
-              flexShrink: 0,
+              background: '#00C896', flexShrink: 0,
               animation: 'validatorPulse 2s ease-in-out infinite',
             }} />
-            <CheckCircle2 size={15} color="#00C896" />
-            <div>
+            <CheckCircle2 size={14} color="#00C896" />
+            <div style={{ flex: 1 }}>
               <span style={{
                 fontFamily: "'Playfair Display', serif",
-                fontSize: '0.9rem', fontWeight: 600,
-                color: '#0d1f1a',
-              }}>{v.name}</span>
-              <span style={{
+                fontSize: '0.85rem', fontWeight: 600, color: '#0d1f1a',
+              }}>{p.supplier}</span>
+              <div style={{
                 fontFamily: "'Courier New', monospace",
-                fontSize: '0.75rem',
-                color: '#6B7280',
-                marginLeft: '0.5rem',
-              }}>— {v.location}</span>
+                fontSize: '0.62rem', color: '#9CA3AF',
+                marginTop: '0.15rem', letterSpacing: '0.02em',
+              }}>
+                [{p.peaks.slice(0, 5).join(', ')}, …]
+              </div>
             </div>
           </div>
         ))}
       </div>
+
+      {/* Peer mean */}
       <div style={{
-        marginTop: '1.25rem',
-        paddingTop: '1rem',
+        padding: '0.6rem 0.85rem',
+        background: '#f7fbf9',
+        borderRadius: '8px',
+        border: '1px solid #e0ede9',
+        marginBottom: '0.75rem',
+      }}>
+        <div style={{
+          fontFamily: "'Courier New', monospace",
+          fontSize: '0.6rem', fontWeight: 700,
+          color: '#6B7280', textTransform: 'uppercase',
+          letterSpacing: '0.1em', marginBottom: '0.25rem',
+        }}>PEER MEAN (±50 TOLERANCE)</div>
+        <div style={{
+          fontFamily: "'Courier New', monospace",
+          fontSize: '0.72rem', color: '#0d1f1a',
+        }}>[{means.join(', ')}]</div>
+      </div>
+
+      {/* Per-peak results after mint attempt */}
+      {consensusResult && (
+        <div style={{
+          padding: '0.6rem 0.85rem',
+          borderRadius: '8px',
+          background: consensusResult.passed ? 'rgba(0,200,150,0.05)' : 'rgba(255,77,77,0.05)',
+          border: `1px solid ${consensusResult.passed ? 'rgba(0,200,150,0.2)' : 'rgba(255,77,77,0.2)'}`,
+          marginBottom: '0.5rem',
+        }}>
+          <div style={{
+            fontFamily: "'Courier New', monospace",
+            fontSize: '0.6rem', fontWeight: 700,
+            color: consensusResult.passed ? '#065F46' : '#991B1B',
+            textTransform: 'uppercase',
+            letterSpacing: '0.1em', marginBottom: '0.4rem',
+          }}>
+            {consensusResult.passed ? '✓ ALL PEAKS WITHIN TOLERANCE' : '✗ CONSENSUS FAILED'}
+          </div>
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)',
+            gap: '0.3rem',
+          }}>
+            {consensusResult.perPeak.map(p => (
+              <div key={p.index} style={{
+                textAlign: 'center',
+                padding: '0.3rem 0.15rem',
+                borderRadius: '6px',
+                background: p.ok ? 'rgba(0,200,150,0.08)' : 'rgba(255,77,77,0.1)',
+                border: `1px solid ${p.ok ? 'rgba(0,200,150,0.2)' : 'rgba(255,77,77,0.25)'}`,
+              }}>
+                <div style={{
+                  fontFamily: "'Courier New', monospace",
+                  fontSize: '0.55rem', color: '#9CA3AF',
+                }}>P{p.index}</div>
+                <div style={{
+                  fontFamily: "'Courier New', monospace",
+                  fontSize: '0.68rem', fontWeight: 700,
+                  color: p.ok ? '#065F46' : '#991B1B',
+                }}>Δ{p.delta}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div style={{
+        marginTop: '0.5rem',
+        paddingTop: '0.75rem',
         borderTop: '1px solid #e0ede9',
         fontFamily: "'Courier New', monospace",
         fontSize: '0.72rem',
         color: '#6B7280',
         letterSpacing: '0.05em',
       }}>
-        3/3 validators reachable · Polygon Amoy
+        {peers.length}/{peers.length} baseline peers · Polygon Amoy
       </div>
 
       <style>{`
@@ -351,7 +416,7 @@ export default function MintToken({ contract }) {
   const { ready, authenticated } = useAuth();
   const { wallets } = useWallets();
   const wallet    = wallets[0];
-  const { mintBatch, loading, isGeneratingProof, error: gaslessError } = useGaslessContract();
+  const { mintBatch, loading, isGeneratingProof, error: gaslessError, consensusResult } = useGaslessContract();
   const [error,    setError]    = useState('');
   const [fpFile,   setFpFile]   = useState(null);
   const [formData, setFormData] = useState({
@@ -437,7 +502,7 @@ export default function MintToken({ contract }) {
               gap: '1.5rem',
               marginBottom: '1.75rem',
             }}>
-              <ValidatorCard animDelay={0.08} />
+              <ValidatorCard animDelay={0.08} consensusResult={consensusResult} />
               <UploadCard file={fpFile} onFile={setFpFile} animDelay={0.16} />
               <NFTPreviewCard batchId={formData.batchId} expiryDays={formData.expiryDays} animDelay={0.24} />
               <FormCard formData={formData} setFormData={setFormData} animDelay={0.32} />
