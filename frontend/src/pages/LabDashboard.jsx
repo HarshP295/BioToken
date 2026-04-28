@@ -4,14 +4,18 @@
 // Completely separate from the manufacturer Dashboard.
 // ─────────────────────────────────────────────────────────────────
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Search, FlaskConical, Fingerprint, ShieldCheck,
   CheckCircle2, AlertTriangle, ShieldAlert, Info,
   ArrowRight, Beaker, Package, Truck, RefreshCw, Send, Upload,
+  ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
+import { useWallets } from '@privy-io/react-auth';
+import { ethers } from 'ethers';
+import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
 import { useLabVerification, LAB_STEPS } from '../hooks/useLabVerification';
 import DNABackground from '../components/DNABackground';
 
@@ -23,6 +27,231 @@ const STATUS_META = [
   { label: 'VERIFIED',   color: '#00C896', icon: <ShieldCheck size={14} /> },
   { label: 'CONSUMED',   color: '#FF4D4D', icon: <Beaker size={14} /> },
 ];
+
+// Lab only cares about tokens that have passed to their side (status >= 2)
+const LAB_STATUSES = new Set([2, 3, 4]);
+
+/* ── Lab Reagent Overview Panel ───────────────────────────────── */
+function LabTokensOverview({ wallets }) {
+  const [tokens,   setTokens]   = useState([]);
+  const [loading,  setLoading]  = useState(false);
+  const [open,     setOpen]     = useState(true);
+
+  const loadTokens = async () => {
+    setLoading(true);
+    try {
+      let contract;
+      if (wallets && wallets[0]) {
+        const prov   = await wallets[0].getEthereumProvider();
+        const bp     = new ethers.BrowserProvider(prov);
+        const signer = await bp.getSigner();
+        contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+      } else {
+        const fp = new ethers.JsonRpcProvider('https://rpc-amoy.polygon.technology');
+        contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, fp);
+      }
+      const fetched = [];
+      for (let i = 0; i < 50; i++) {
+        try {
+          const owner = await contract.ownerOf(i);
+          const data  = await contract.getTokenData(i);
+          const status = Number(data.status);
+          if (LAB_STATUSES.has(status)) {
+            fetched.push({
+              id: i, owner, batchId: data.batchId,
+              expiry: Number(data.expiry), status,
+            });
+          }
+        } catch { break; }
+      }
+      setTokens(fetched.reverse());
+    } catch (err) {
+      console.error('Lab overview load failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadTokens(); }, []);
+
+  const statusCount = (s) => tokens.filter(t => t.status === s).length;
+
+  return (
+    <div style={{
+      borderRadius: '24px',
+      marginBottom: '2rem',
+      overflow: 'hidden',
+      position: 'relative',
+      background: 'linear-gradient(135deg, #ffffff 0%, #f4fdf9 60%, #edf9f4 100%)',
+      border: '1px solid rgba(0,200,150,0.2)',
+      boxShadow: '0 16px 60px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,200,150,0.06), inset 0 1px 0 rgba(255,255,255,0.9)',
+      animation: 'labSlideUp 0.55s cubic-bezier(0.23,1,0.32,1) both',
+    }}>
+      {/* Ambient orbs */}
+      <div style={{ position:'absolute', top:-60, right:-40, width:220, height:220, background:'radial-gradient(circle, rgba(0,200,150,0.07) 0%, transparent 70%)', pointerEvents:'none', borderRadius:'50%' }} />
+      <div style={{ position:'absolute', bottom:-50, left:-50, width:180, height:180, background:'radial-gradient(circle, rgba(79,70,229,0.05) 0%, transparent 70%)', pointerEvents:'none', borderRadius:'50%' }} />
+      {/* Collapsible header */}
+      <div
+        onClick={() => setOpen(o => !o)}
+        style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '1.4rem 1.75rem',
+          cursor: 'pointer',
+          borderBottom: open ? '1px solid rgba(0,200,150,0.12)' : 'none',
+          userSelect: 'none',
+          position: 'relative', zIndex: 1,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.9rem' }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: '14px',
+            background: 'linear-gradient(135deg, rgba(0,200,150,0.18) 0%, rgba(0,200,150,0.06) 100%)',
+            border: '1px solid rgba(0,200,150,0.3)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#00C896',
+            boxShadow: '0 0 24px rgba(0,200,150,0.25)',
+            animation: 'labFloat 3.5s ease-in-out infinite',
+          }}>
+            <FlaskConical size={20} />
+          </div>
+          <div>
+            <div style={{
+              fontFamily: "'Libre Baskerville', serif",
+              fontWeight: 700, fontSize: '1rem', color: '#0d1f1a',
+              marginBottom: '0.15rem',
+            }}>Reagent Status Overview</div>
+            <div style={{
+              fontFamily: "'Courier New', monospace",
+              fontSize: '0.63rem', color: '#6B7280',
+              letterSpacing: '0.04em',
+            }}>{tokens.length} batch{tokens.length !== 1 ? 'es' : ''} · live from Polygon</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', flexWrap: 'wrap' }}>
+          {[2, 3, 4].map(s => {
+            const m = STATUS_META[s];
+            const c = statusCount(s);
+            return c > 0 ? (
+              <span key={s} style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.3rem',
+                padding: '0.25rem 0.7rem', borderRadius: '9999px',
+                background: `${m.color}18`, color: m.color,
+                border: `1px solid ${m.color}40`,
+                fontFamily: "'Courier New', monospace",
+                fontSize: '0.61rem', fontWeight: 700, letterSpacing: '0.06em',
+                boxShadow: `0 0 14px ${m.color}30`,
+              }}>
+                {m.icon} {c} {m.label}
+              </span>
+            ) : null;
+          })}
+          <button
+            onClick={e => { e.stopPropagation(); loadTokens(); }}
+            disabled={loading}
+            style={{
+              background: 'rgba(0,200,150,0.06)', border: '1px solid rgba(0,200,150,0.2)',
+              borderRadius: '8px', cursor: loading ? 'not-allowed' : 'pointer',
+              color: '#00A87E', display: 'flex', padding: '6px',
+              transition: 'all 0.2s',
+            }}
+            title="Refresh"
+          >
+            <RefreshCw size={13} style={{ animation: loading ? 'labSpin 0.8s linear infinite' : 'none' }} />
+          </button>
+          <div style={{ color: '#9CA3AF', display: 'flex' }}>
+            {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </div>
+        </div>
+      </div>
+
+      {open && (
+        <div style={{ padding: '1.25rem 1.75rem 1.75rem', position: 'relative', zIndex: 1 }}>
+          {loading && tokens.length === 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem 0', gap: '1rem' }}>
+              <div style={{ position: 'relative', width: 56, height: 56 }}>
+                <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '2px solid rgba(0,200,150,0.25)', animation: 'labRipple 1.6s ease-out infinite' }} />
+                <div style={{ position: 'absolute', inset: 8, borderRadius: '50%', border: '2px solid rgba(0,200,150,0.5)', borderTopColor: 'transparent', animation: 'labSpin 0.9s linear infinite' }} />
+                <div style={{ position: 'absolute', inset: 16, borderRadius: '50%', background: 'rgba(0,200,150,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#00C896' }}>
+                  <FlaskConical size={12} />
+                </div>
+              </div>
+              <div style={{ fontFamily: "'Courier New', monospace", fontSize: '0.72rem', color: '#9CA3AF', letterSpacing: '0.08em' }}>SCANNING POLYGON…</div>
+            </div>
+          ) : tokens.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '2.5rem', fontFamily: "'Playfair Display', serif", fontSize: '0.9rem', color: '#9CA3AF' }}>
+              No reagent batches have reached the lab yet.
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(255px, 1fr))', gap: '0.85rem' }}>
+              {tokens.map((t, idx) => {
+                const m = STATUS_META[t.status];
+                const isExpired = t.expiry * 1000 < Date.now();
+                return (
+                  <Link key={t.id} to={`/details?id=${t.id}`} style={{ textDecoration: 'none', display: 'block' }}>
+                    <div
+                      className="lab-token-card"
+                      style={{
+                        padding: '1rem 1.1rem',
+                        borderRadius: '16px',
+                        position: 'relative',
+                        overflow: 'hidden',
+                        background: '#ffffff',
+                        boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+                        border: `1px solid ${m.color}20`,
+                        borderTop: `2px solid ${m.color}`,
+                        cursor: 'pointer',
+                        transition: 'transform 0.35s cubic-bezier(0.23,1,0.32,1), box-shadow 0.35s ease',
+                        animation: `labCardEntrance 0.5s ease-out ${idx * 0.06}s both`,
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.transform = 'perspective(700px) rotateY(-6deg) rotateX(4deg) translateY(-6px) scale(1.02)';
+                        e.currentTarget.style.boxShadow = `0 20px 40px rgba(0,0,0,0.12), 0 0 24px ${m.color}25, inset 0 -1px 0 ${m.color}20`;
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.transform = 'none';
+                        e.currentTarget.style.boxShadow = 'none';
+                      }}
+                    >
+                      {/* Top glow line */}
+                      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 1, background: `linear-gradient(90deg, transparent, ${m.color}70, transparent)` }} />
+                      {/* Corner shimmer */}
+                      <div style={{ position: 'absolute', top: -20, right: -20, width: 70, height: 70, background: `radial-gradient(circle, ${m.color}14 0%, transparent 70%)`, pointerEvents: 'none' }} />
+                      {/* Scan line on hover handled via CSS */}
+                      <div className="lab-scan-line" style={{ position: 'absolute', left: 0, right: 0, height: 1, background: `linear-gradient(90deg, transparent, ${m.color}80, transparent)`, animation: 'labScanLine 2.5s ease-in-out infinite', pointerEvents: 'none' }} />
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                        <div>
+                          <div style={{ fontFamily: "'Libre Baskerville', serif", fontWeight: 700, fontSize: '0.9rem', color: '#0d1f1a', marginBottom: '0.25rem' }}>{t.batchId}</div>
+                          <div style={{ fontFamily: "'Courier New', monospace", fontSize: '0.6rem', color: '#6B7280' }}>
+                            Token #{t.id} · {isExpired
+                              ? <span style={{ color: '#FF4D4D', fontWeight: 700 }}>EXPIRED</span>
+                              : `Exp ${new Date(t.expiry * 1000).toLocaleDateString()}`}
+                          </div>
+                        </div>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '0.25rem',
+                          padding: '0.22rem 0.6rem', borderRadius: '9999px',
+                          background: `${m.color}20`, color: m.color,
+                          border: `1px solid ${m.color}45`,
+                          fontFamily: "'Courier New', monospace",
+                          fontSize: '0.58rem', fontWeight: 700, letterSpacing: '0.07em',
+                          whiteSpace: 'nowrap', flexShrink: 0,
+                          boxShadow: `0 0 16px ${m.color}35`,
+                        }}>
+                          {m.icon} {m.label}
+                        </span>
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ── Pipeline step definitions ────────────────────────────────── */
 const PIPELINE = [
@@ -377,6 +606,7 @@ function SuccessCard({ txReceipt, tokenId }) {
 /* ── Main Page Component ──────────────────────────────────────── */
 export default function LabDashboard() {
   const { ready, authenticated } = useAuth();
+  const { wallets } = useWallets();
   const {
     step, tokenData, aiResult, zkProof, txReceipt, error, loading,
     fetchToken, runAiCheck, generateProof, submitVerification, reset,
@@ -515,7 +745,7 @@ export default function LabDashboard() {
 
       <div style={{ position: 'relative', zIndex: 1 }}>
         <div style={{
-          maxWidth: 800, margin: '0 auto',
+          maxWidth: 1200, margin: '0 auto',
           padding: '3rem 48px 5rem',
         }} className="lab-dashboard-wrap">
 
@@ -528,15 +758,22 @@ export default function LabDashboard() {
               <div>
                 <div style={{
                   fontFamily: "'Courier New', monospace",
-                  fontSize: '0.7rem', fontWeight: 700,
-                  letterSpacing: '0.2em', textTransform: 'uppercase',
+                  fontSize: '0.68rem', fontWeight: 700,
+                  letterSpacing: '0.22em', textTransform: 'uppercase',
                   color: '#00C896', marginBottom: '0.6rem',
-                }}>LAB VIEW</div>
+                  display: 'flex', alignItems: 'center', gap: '0.5rem',
+                }}>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#00C896', display: 'inline-block', boxShadow: '0 0 8px #00C896', animation: 'labPulseDot 2s infinite' }} />
+                  LAB VERIFICATION CONSOLE
+                </div>
                 <h1 style={{
                   fontFamily: "'Libre Baskerville', serif",
                   fontSize: 'clamp(2rem, 5vw, 3rem)',
-                  fontWeight: 700, color: '#0d1f1a',
-                  lineHeight: 1.1, marginBottom: '0.5rem',
+                  fontWeight: 700, lineHeight: 1.1, marginBottom: '0.5rem',
+                  background: 'linear-gradient(135deg, #0d1f1a 0%, #00A87E 60%, #4F46E5 100%)',
+                  WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+                  backgroundClip: 'text',
+                  filter: 'drop-shadow(0 0 20px rgba(0,200,150,0.2))',
                 }}>Verification Console</h1>
                 <p style={{
                   fontFamily: "'Playfair Display', serif",
@@ -590,8 +827,41 @@ export default function LabDashboard() {
             </div>
           )}
 
+          {/* ── Lab Reagent Overview ── */}
+          <LabTokensOverview wallets={wallets} />
+
           {/* ── Token Info ── */}
           <TokenInfoCard token={tokenData} />
+
+          {/* ── Already-verified / consumed guard ── */}
+          {tokenData && tokenData.status >= 3 && (
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: '0.6rem',
+              padding: '1.1rem 1.25rem',
+              background: tokenData.status === 4
+                ? 'rgba(255,77,77,0.05)'
+                : 'rgba(0,200,150,0.05)',
+              border: `1px solid ${tokenData.status === 4 ? 'rgba(255,77,77,0.2)' : 'rgba(0,200,150,0.2)'}`,
+              borderLeft: `3px solid ${tokenData.status === 4 ? '#FF4D4D' : '#00C896'}`,
+              borderRadius: '12px',
+              fontFamily: "'Playfair Display', serif",
+              fontSize: '0.9rem',
+              color: tokenData.status === 4 ? '#991B1B' : '#065F46',
+              marginBottom: '1.25rem',
+            }}>
+              {tokenData.status === 4
+                ? <Beaker size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+                : <ShieldCheck size={16} style={{ flexShrink: 0, marginTop: 2 }} />}
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: '0.2rem', fontFamily: "'Libre Baskerville', serif" }}>
+                  {tokenData.status === 4 ? 'Token Consumed' : 'Already Verified'}
+                </div>
+                {tokenData.status === 4
+                  ? 'This reagent batch has already been consumed. No further actions are possible.'
+                  : 'This batch has already been verified on-chain. Re-verification is not permitted.'}
+              </div>
+            </div>
+          )}
 
           {/* ── AI Result ── */}
           <AiResultCard result={aiResult} />
@@ -708,7 +978,7 @@ export default function LabDashboard() {
           )}
 
           {/* ── Step 2: CSV Upload + AI Pre-Screen ── */}
-          {tokenData && step >= LAB_STEPS.AI_CHECK && step < LAB_STEPS.ZK_PROVING && !aiResult && (
+          {tokenData && tokenData.status < 3 && step >= LAB_STEPS.AI_CHECK && step < LAB_STEPS.ZK_PROVING && !aiResult && (
             <div style={{
               background: '#fff', borderRadius: '16px',
               border: '1px solid #e0ede9', padding: '2rem',
@@ -995,7 +1265,7 @@ export default function LabDashboard() {
           )}
 
           {/* ── Step 3+4: Auto ZK Proof + Submit ── */}
-          {aiResult?.genuine && step >= LAB_STEPS.ZK_PROVING && step < LAB_STEPS.DONE && (
+          {tokenData && tokenData.status < 3 && aiResult?.genuine && step >= LAB_STEPS.ZK_PROVING && step < LAB_STEPS.DONE && (
             <div style={{
               background: '#fff', borderRadius: '16px',
               border: '1px solid #e0ede9', padding: '2rem',
@@ -1107,6 +1377,36 @@ export default function LabDashboard() {
       </div>
 
       <style>{`
+        @keyframes labFloat {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-7px); }
+        }
+        @keyframes labSpin {
+          to { transform: rotate(360deg); }
+        }
+        @keyframes labSlideUp {
+          from { opacity: 0; transform: translateY(24px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes labCardEntrance {
+          from { opacity: 0; transform: perspective(600px) rotateX(18deg) translateY(28px) scale(0.96); }
+          to   { opacity: 1; transform: perspective(600px) rotateX(0deg)  translateY(0)    scale(1); }
+        }
+        @keyframes labRipple {
+          0%   { transform: scale(0.85); opacity: 1; }
+          100% { transform: scale(2.2);  opacity: 0; }
+        }
+        @keyframes labPulseDot {
+          0%, 100% { box-shadow: 0 0 6px #00C896; opacity: 1; }
+          50%       { box-shadow: 0 0 16px #00C896, 0 0 32px rgba(0,200,150,0.4); opacity: 0.7; }
+        }
+        @keyframes labScanLine {
+          0%   { top: 0%;   opacity: 0; }
+          5%   { opacity: 1; }
+          95%  { opacity: 1; }
+          100% { top: 100%; opacity: 0; }
+        }
+        .lab-token-card { transform-style: preserve-3d; }
         @media (max-width: 768px) {
           .lab-dashboard-wrap { padding: 2rem 1.25rem 4rem !important; }
         }

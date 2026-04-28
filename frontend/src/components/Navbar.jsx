@@ -1,6 +1,6 @@
 // frontend/src/components/Navbar.jsx
 import { Link, useLocation } from 'react-router-dom';
-import { Activity, PlusCircle, Shield, Search, Menu, X, FlaskConical } from 'lucide-react';
+import { Activity, PlusCircle, Search, Menu, X, FlaskConical } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useRole } from '../hooks/useRole';
@@ -49,7 +49,6 @@ export default function Navbar({ account, connectWallet, isConnecting }) {
     // Manufacturer-only links
     { name: 'Dashboard',  path: '/dashboard', icon: <Activity size={14} />,    roles: ['manufacturer'] },
     { name: 'Mint Batch', path: '/mint',      icon: <PlusCircle size={14} />,  roles: ['manufacturer'] },
-    { name: 'Verify',     path: '/verify',    icon: <Shield size={14} />,      roles: ['manufacturer'] },
     // Lab-only links
     { name: 'Lab',        path: '/lab',       icon: <FlaskConical size={14} />,roles: ['lab'] },
     // Shared links

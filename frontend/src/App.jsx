@@ -5,7 +5,7 @@ import LandingPage from './pages/LandingPage';
 import Dashboard from './pages/Dashboard';
 import LabDashboard from './pages/LabDashboard';
 import MintToken from './pages/MintToken';
-import VerifyToken from './pages/VerifyToken';
+
 import TokenDetails from './pages/TokenDetails';
 import RoleSelection from './pages/RoleSelection';
 import { useContract } from './hooks/useContract';
@@ -124,10 +124,7 @@ export default function App() {
                 role === 'lab' ? <Navigate to="/lab" replace /> :
                 <MintToken contract={contract} account={account} />
               } />
-              <Route path="/verify" element={
-                role === 'lab' ? <Navigate to="/lab" replace /> :
-                <VerifyToken contract={contract} account={account} />
-              } />
+
 
               {/* Lab routes */}
               <Route path="/lab" element={

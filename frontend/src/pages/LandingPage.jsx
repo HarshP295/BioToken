@@ -84,7 +84,7 @@ function Hero() {
             display: 'flex', gap: '1.75rem', marginTop: '2.5rem',
             flexWrap: 'wrap', alignItems: 'center',
           }}>
-            {['ZK-VERIFIED','ON-CHAIN NFT','AI PRE-SCREEN','POLYGON'].map(label => (
+            {['ZK-VERIFIED', 'ON-CHAIN NFT', 'AI PRE-SCREEN', 'POLYGON'].map(label => (
               <span key={label} style={{
                 fontFamily: 'var(--font-mono)', fontSize: '0.68rem',
                 fontWeight: 600, letterSpacing: '0.12em',
@@ -111,7 +111,7 @@ function Hero() {
           </div>
           <HplcWave style={{ width: '100%', height: 'auto' }} />
           <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
-            {[['ZK Proof','0x1818...40'],['Token ID','#0042'],['Chain','Polygon']].map(([k,v]) => (
+            {[['ZK Proof', '0x1818...40'], ['Token ID', '#0042'], ['Chain', 'Polygon']].map(([k, v]) => (
               <div key={k} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
                 <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>{k}</div>
                 <span className="mono-tag">{v}</span>
@@ -290,15 +290,15 @@ const TECHS = [
     name: 'Polygon', desc: 'L2 Blockchain', color: '#7B3FE4', delay: 0,
     icon: (
       <svg viewBox="0 0 48 48" fill="none">
-        <polygon points="24,3 42,13 42,35 24,45 6,35 6,13" stroke="#7B3FE4" strokeWidth="2" fill="rgba(123,63,228,0.07)"/>
-        <polygon points="24,13 34,19 34,29 24,35 14,29 14,19" stroke="#7B3FE4" strokeWidth="1.5" fill="rgba(123,63,228,0.15)"/>
-        <circle cx="24" cy="24" r="3" fill="#7B3FE4"/>
-        <line x1="24" y1="13" x2="24" y2="3" stroke="#7B3FE4" strokeWidth="1" opacity="0.4"/>
-        <line x1="34" y1="19" x2="42" y2="13" stroke="#7B3FE4" strokeWidth="1" opacity="0.4"/>
-        <line x1="34" y1="29" x2="42" y2="35" stroke="#7B3FE4" strokeWidth="1" opacity="0.4"/>
-        <line x1="24" y1="35" x2="24" y2="45" stroke="#7B3FE4" strokeWidth="1" opacity="0.4"/>
-        <line x1="14" y1="29" x2="6" y2="35" stroke="#7B3FE4" strokeWidth="1" opacity="0.4"/>
-        <line x1="14" y1="19" x2="6" y2="13" stroke="#7B3FE4" strokeWidth="1" opacity="0.4"/>
+        <polygon points="24,3 42,13 42,35 24,45 6,35 6,13" stroke="#7B3FE4" strokeWidth="2" fill="rgba(123,63,228,0.07)" />
+        <polygon points="24,13 34,19 34,29 24,35 14,29 14,19" stroke="#7B3FE4" strokeWidth="1.5" fill="rgba(123,63,228,0.15)" />
+        <circle cx="24" cy="24" r="3" fill="#7B3FE4" />
+        <line x1="24" y1="13" x2="24" y2="3" stroke="#7B3FE4" strokeWidth="1" opacity="0.4" />
+        <line x1="34" y1="19" x2="42" y2="13" stroke="#7B3FE4" strokeWidth="1" opacity="0.4" />
+        <line x1="34" y1="29" x2="42" y2="35" stroke="#7B3FE4" strokeWidth="1" opacity="0.4" />
+        <line x1="24" y1="35" x2="24" y2="45" stroke="#7B3FE4" strokeWidth="1" opacity="0.4" />
+        <line x1="14" y1="29" x2="6" y2="35" stroke="#7B3FE4" strokeWidth="1" opacity="0.4" />
+        <line x1="14" y1="19" x2="6" y2="13" stroke="#7B3FE4" strokeWidth="1" opacity="0.4" />
       </svg>
     ),
   },
@@ -306,16 +306,16 @@ const TECHS = [
     name: 'circom', desc: 'ZK Circuits', color: '#00C896', delay: 0.15,
     icon: (
       <svg viewBox="0 0 48 48" fill="none">
-        <circle cx="24" cy="24" r="14" stroke="#00C896" strokeWidth="2"/>
-        <circle cx="24" cy="24" r="5" fill="rgba(0,200,150,0.3)" stroke="#00C896" strokeWidth="1.5"/>
-        <line x1="24" y1="10" x2="24" y2="4" stroke="#00C896" strokeWidth="2"/>
-        <line x1="38" y1="24" x2="44" y2="24" stroke="#00C896" strokeWidth="2"/>
-        <line x1="24" y1="38" x2="24" y2="44" stroke="#00C896" strokeWidth="2"/>
-        <line x1="10" y1="24" x2="4" y2="24" stroke="#00C896" strokeWidth="2"/>
-        <circle cx="24" cy="4" r="2" fill="#00C896"/>
-        <circle cx="44" cy="24" r="2" fill="#00C896"/>
-        <circle cx="24" cy="44" r="2" fill="#00C896"/>
-        <circle cx="4" cy="24" r="2" fill="#00C896"/>
+        <circle cx="24" cy="24" r="14" stroke="#00C896" strokeWidth="2" />
+        <circle cx="24" cy="24" r="5" fill="rgba(0,200,150,0.3)" stroke="#00C896" strokeWidth="1.5" />
+        <line x1="24" y1="10" x2="24" y2="4" stroke="#00C896" strokeWidth="2" />
+        <line x1="38" y1="24" x2="44" y2="24" stroke="#00C896" strokeWidth="2" />
+        <line x1="24" y1="38" x2="24" y2="44" stroke="#00C896" strokeWidth="2" />
+        <line x1="10" y1="24" x2="4" y2="24" stroke="#00C896" strokeWidth="2" />
+        <circle cx="24" cy="4" r="2" fill="#00C896" />
+        <circle cx="44" cy="24" r="2" fill="#00C896" />
+        <circle cx="24" cy="44" r="2" fill="#00C896" />
+        <circle cx="4" cy="24" r="2" fill="#00C896" />
       </svg>
     ),
   },
@@ -323,9 +323,9 @@ const TECHS = [
     name: 'snarkjs', desc: 'ZK Proofs', color: '#4F46E5', delay: 0.3,
     icon: (
       <svg viewBox="0 0 48 48" fill="none">
-        <path d="M24 4 L40 11 L40 26 Q40 38 24 46 Q8 38 8 26 L8 11 Z" stroke="#4F46E5" strokeWidth="2" fill="rgba(79,70,229,0.08)"/>
-        <path d="M16 25 L21 30 L33 18" stroke="#4F46E5" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-        <circle cx="24" cy="11" r="2" fill="#4F46E5" opacity="0.5"/>
+        <path d="M24 4 L40 11 L40 26 Q40 38 24 46 Q8 38 8 26 L8 11 Z" stroke="#4F46E5" strokeWidth="2" fill="rgba(79,70,229,0.08)" />
+        <path d="M16 25 L21 30 L33 18" stroke="#4F46E5" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx="24" cy="11" r="2" fill="#4F46E5" opacity="0.5" />
       </svg>
     ),
   },
@@ -333,11 +333,11 @@ const TECHS = [
     name: 'Hardhat', desc: 'Smart Contracts', color: '#F59E0B', delay: 0.45,
     icon: (
       <svg viewBox="0 0 48 48" fill="none">
-        <ellipse cx="24" cy="34" rx="17" ry="4" fill="rgba(245,158,11,0.2)" stroke="#F59E0B" strokeWidth="2"/>
-        <path d="M11 32 Q9 18 24 14 Q39 18 37 32" fill="rgba(245,158,11,0.12)" stroke="#F59E0B" strokeWidth="2"/>
-        <path d="M13 27 Q24 23 35 27" stroke="#F59E0B" strokeWidth="1.5" fill="none"/>
-        <circle cx="24" cy="14" r="3" fill="#F59E0B" opacity="0.7"/>
-        <line x1="24" y1="11" x2="24" y2="6" stroke="#F59E0B" strokeWidth="2"/>
+        <ellipse cx="24" cy="34" rx="17" ry="4" fill="rgba(245,158,11,0.2)" stroke="#F59E0B" strokeWidth="2" />
+        <path d="M11 32 Q9 18 24 14 Q39 18 37 32" fill="rgba(245,158,11,0.12)" stroke="#F59E0B" strokeWidth="2" />
+        <path d="M13 27 Q24 23 35 27" stroke="#F59E0B" strokeWidth="1.5" fill="none" />
+        <circle cx="24" cy="14" r="3" fill="#F59E0B" opacity="0.7" />
+        <line x1="24" y1="11" x2="24" y2="6" stroke="#F59E0B" strokeWidth="2" />
       </svg>
     ),
   },
@@ -345,19 +345,19 @@ const TECHS = [
     name: 'IPFS', desc: 'Metadata Storage', color: '#65C3E8', delay: 0.6,
     icon: (
       <svg viewBox="0 0 48 48" fill="none">
-        <circle cx="24" cy="24" r="5" fill="#65C3E8"/>
-        <circle cx="10" cy="12" r="3.5" stroke="#65C3E8" strokeWidth="1.5" fill="rgba(101,195,232,0.2)"/>
-        <circle cx="38" cy="12" r="3.5" stroke="#65C3E8" strokeWidth="1.5" fill="rgba(101,195,232,0.2)"/>
-        <circle cx="10" cy="36" r="3.5" stroke="#65C3E8" strokeWidth="1.5" fill="rgba(101,195,232,0.2)"/>
-        <circle cx="38" cy="36" r="3.5" stroke="#65C3E8" strokeWidth="1.5" fill="rgba(101,195,232,0.2)"/>
-        <line x1="13" y1="14" x2="21" y2="21" stroke="#65C3E8" strokeWidth="1"/>
-        <line x1="35" y1="14" x2="27" y2="21" stroke="#65C3E8" strokeWidth="1"/>
-        <line x1="13" y1="34" x2="21" y2="27" stroke="#65C3E8" strokeWidth="1"/>
-        <line x1="35" y1="34" x2="27" y2="27" stroke="#65C3E8" strokeWidth="1"/>
-        <line x1="13" y1="12" x2="35" y2="12" stroke="#65C3E8" strokeWidth="0.75" opacity="0.5"/>
-        <line x1="10" y1="15" x2="10" y2="33" stroke="#65C3E8" strokeWidth="0.75" opacity="0.5"/>
-        <line x1="38" y1="15" x2="38" y2="33" stroke="#65C3E8" strokeWidth="0.75" opacity="0.5"/>
-        <line x1="13" y1="36" x2="35" y2="36" stroke="#65C3E8" strokeWidth="0.75" opacity="0.5"/>
+        <circle cx="24" cy="24" r="5" fill="#65C3E8" />
+        <circle cx="10" cy="12" r="3.5" stroke="#65C3E8" strokeWidth="1.5" fill="rgba(101,195,232,0.2)" />
+        <circle cx="38" cy="12" r="3.5" stroke="#65C3E8" strokeWidth="1.5" fill="rgba(101,195,232,0.2)" />
+        <circle cx="10" cy="36" r="3.5" stroke="#65C3E8" strokeWidth="1.5" fill="rgba(101,195,232,0.2)" />
+        <circle cx="38" cy="36" r="3.5" stroke="#65C3E8" strokeWidth="1.5" fill="rgba(101,195,232,0.2)" />
+        <line x1="13" y1="14" x2="21" y2="21" stroke="#65C3E8" strokeWidth="1" />
+        <line x1="35" y1="14" x2="27" y2="21" stroke="#65C3E8" strokeWidth="1" />
+        <line x1="13" y1="34" x2="21" y2="27" stroke="#65C3E8" strokeWidth="1" />
+        <line x1="35" y1="34" x2="27" y2="27" stroke="#65C3E8" strokeWidth="1" />
+        <line x1="13" y1="12" x2="35" y2="12" stroke="#65C3E8" strokeWidth="0.75" opacity="0.5" />
+        <line x1="10" y1="15" x2="10" y2="33" stroke="#65C3E8" strokeWidth="0.75" opacity="0.5" />
+        <line x1="38" y1="15" x2="38" y2="33" stroke="#65C3E8" strokeWidth="0.75" opacity="0.5" />
+        <line x1="13" y1="36" x2="35" y2="36" stroke="#65C3E8" strokeWidth="0.75" opacity="0.5" />
       </svg>
     ),
   },
@@ -365,10 +365,10 @@ const TECHS = [
     name: 'React + Vite', desc: 'Frontend', color: '#61DAFB', delay: 0.75,
     icon: (
       <svg viewBox="0 0 48 48" fill="none">
-        <circle cx="24" cy="24" r="4" fill="#61DAFB"/>
-        <ellipse cx="24" cy="24" rx="20" ry="7" stroke="#61DAFB" strokeWidth="1.5" style={{transformOrigin:'24px 24px', animation:'techIconSpin 6s linear infinite'}}/>
-        <ellipse cx="24" cy="24" rx="20" ry="7" stroke="#61DAFB" strokeWidth="1.5" transform="rotate(60 24 24)" style={{transformOrigin:'24px 24px', animation:'techIconSpin 8s linear infinite reverse'}}/>
-        <ellipse cx="24" cy="24" rx="20" ry="7" stroke="#61DAFB" strokeWidth="1.5" transform="rotate(-60 24 24)" style={{transformOrigin:'24px 24px', animation:'techIconSpin 10s linear infinite'}}/>
+        <circle cx="24" cy="24" r="4" fill="#61DAFB" />
+        <ellipse cx="24" cy="24" rx="20" ry="7" stroke="#61DAFB" strokeWidth="1.5" style={{ transformOrigin: '24px 24px', animation: 'techIconSpin 6s linear infinite' }} />
+        <ellipse cx="24" cy="24" rx="20" ry="7" stroke="#61DAFB" strokeWidth="1.5" transform="rotate(60 24 24)" style={{ transformOrigin: '24px 24px', animation: 'techIconSpin 8s linear infinite reverse' }} />
+        <ellipse cx="24" cy="24" rx="20" ry="7" stroke="#61DAFB" strokeWidth="1.5" transform="rotate(-60 24 24)" style={{ transformOrigin: '24px 24px', animation: 'techIconSpin 10s linear infinite' }} />
       </svg>
     ),
   },
@@ -376,11 +376,11 @@ const TECHS = [
     name: 'ethers.js', desc: 'Web3 Bridge', color: '#6B7280', delay: 0.9,
     icon: (
       <svg viewBox="0 0 48 48" fill="none">
-        <polygon points="24,4 40,24 24,44 8,24" stroke="#6B7280" strokeWidth="2" fill="rgba(107,114,128,0.07)"/>
-        <polygon points="24,4 40,24 24,27 8,24" fill="rgba(107,114,128,0.18)"/>
-        <line x1="8" y1="24" x2="40" y2="24" stroke="#6B7280" strokeWidth="1"/>
-        <line x1="8" y1="24" x2="24" y2="10" stroke="#6B7280" strokeWidth="1" opacity="0.4"/>
-        <line x1="40" y1="24" x2="24" y2="10" stroke="#6B7280" strokeWidth="1" opacity="0.4"/>
+        <polygon points="24,4 40,24 24,44 8,24" stroke="#6B7280" strokeWidth="2" fill="rgba(107,114,128,0.07)" />
+        <polygon points="24,4 40,24 24,27 8,24" fill="rgba(107,114,128,0.18)" />
+        <line x1="8" y1="24" x2="40" y2="24" stroke="#6B7280" strokeWidth="1" />
+        <line x1="8" y1="24" x2="24" y2="10" stroke="#6B7280" strokeWidth="1" opacity="0.4" />
+        <line x1="40" y1="24" x2="24" y2="10" stroke="#6B7280" strokeWidth="1" opacity="0.4" />
       </svg>
     ),
   },
@@ -388,10 +388,10 @@ const TECHS = [
     name: 'ERC-721', desc: 'NFT Standard', color: '#FF4D4D', delay: 1.05,
     icon: (
       <svg viewBox="0 0 48 48" fill="none">
-        <rect x="8" y="8" width="32" height="32" rx="6" stroke="#FF4D4D" strokeWidth="2" fill="rgba(255,77,77,0.07)"/>
-        <rect x="14" y="14" width="20" height="20" rx="3" stroke="#FF4D4D" strokeWidth="1.2" fill="rgba(255,77,77,0.1)"/>
+        <rect x="8" y="8" width="32" height="32" rx="6" stroke="#FF4D4D" strokeWidth="2" fill="rgba(255,77,77,0.07)" />
+        <rect x="14" y="14" width="20" height="20" rx="3" stroke="#FF4D4D" strokeWidth="1.2" fill="rgba(255,77,77,0.1)" />
         <text x="24" y="28" textAnchor="middle" fontSize="10" fontWeight="700" fill="#FF4D4D" fontFamily="monospace">NFT</text>
-        <circle cx="38" cy="10" r="4" fill="#FF4D4D"/>
+        <circle cx="38" cy="10" r="4" fill="#FF4D4D" />
         <text x="38" y="13" textAnchor="middle" fontSize="6" fontWeight="700" fill="#fff" fontFamily="monospace">⬡</text>
       </svg>
     ),
@@ -508,9 +508,9 @@ function Stats() {
 /* ── Team ────────────────────────────────────────────────────── */
 function Team() {
   const members = [
-    { initials: 'HM', name: 'Harsh Maheshwari', role: 'Blockchain & ZK Engineer', color: 'var(--chain)' },
-    { initials: 'AK', name: 'AI Research Lead', role: 'HPLC Fingerprinting & ML', color: 'var(--accent-dim)' },
-    { initials: 'CP', name: 'Protocol Architect', role: 'Smart Contracts & Circuit Design', color: '#F59E0B' },
+    { initials: 'KS', name: 'Khushi Singh', role: 'Blockchain & ZK Engineer', color: 'var(--chain)' },
+    { initials: 'HP', name: 'Harsh Patil', role: 'HPLC Fingerprinting & ML', color: 'var(--accent-dim)' },
+    { initials: 'IK', name: 'Ishaan Khan', role: 'Protocol Architect', role: 'Smart Contracts & Circuit Design', color: '#F59E0B' },
   ];
 
   return (

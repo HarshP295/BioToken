@@ -6,6 +6,7 @@ import StatusBadge, { STAGES } from '../components/StatusBadge';
 import { useZKProof } from '../zkp/useZKProof';
 
 import { useAuth } from '../hooks/useAuth';
+import { useRole } from '../hooks/useRole';
 import { useWallets } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
@@ -19,11 +20,16 @@ const LIFECYCLE = [
   { id: 4, label: 'Consumed',            color: 'var(--alert)',    action: null, actionLabel: null },
 ];
 
+// Stages owned by each role
+const MANUFACTURER_STAGES = new Set([0, 1]); // Minted, In Transit
+const LAB_STAGES          = new Set([2, 3, 4]); // Received, Verified, Consumed
+
 export default function TokenDetails({ contract }) {
   const [searchParams] = useSearchParams();
   const tokenId = searchParams.get('id');
 
   const { ready, authenticated, user, createWallet } = useAuth();
+  const { role } = useRole();
   const { wallets } = useWallets();
   const wallet = wallets[0];
   const account = wallet?.address || user?.wallet?.address;
@@ -291,61 +297,76 @@ export default function TokenDetails({ contract }) {
 
         <div className="lab-card">
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {LIFECYCLE.map((stage) => {
-              const done    = statusNum > stage.id;
-              const current = statusNum === stage.id;
-              const pending = statusNum < stage.id;
+            {LIFECYCLE
+              // Each role sees only their portion of the pipeline
+              .filter(stage =>
+                role === 'manufacturer' ? MANUFACTURER_STAGES.has(stage.id)
+                : role === 'lab'        ? LAB_STAGES.has(stage.id)
+                : true                 // unauthenticated — show all (read-only)
+              )
+              .map((stage) => {
+                const done    = statusNum > stage.id;
+                const current = statusNum === stage.id;
+                const pending = statusNum < stage.id;
 
-              return (
-                <div key={stage.id} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '0.9rem 1.1rem',
-                  borderRadius: 'var(--radius-md)',
-                  border: current
-                    ? `1px solid ${stage.color}`
-                    : done ? '1px solid var(--border)' : '1px solid var(--border)',
-                  background: current ? `color-mix(in srgb, ${stage.color} 6%, transparent)` : 'transparent',
-                  opacity: pending ? 0.45 : 1,
-                  transition: 'all 0.2s',
-                  flexWrap: 'wrap', gap: '0.5rem',
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                    <div style={{
-                      width: 26, height: 26, borderRadius: '50%',
-                      background: done || current ? stage.color : 'var(--border)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      color: '#fff', flexShrink: 0,
-                    }}>
-                      <CheckCircle2 size={14} />
-                    </div>
-                    <div>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: '0.85rem', color: 'var(--text)' }}>
-                        {stage.id + 1}. {stage.label}
+                // Determine whether the action button should be shown for this role
+                const canAct =
+                  current &&
+                  stage.action &&
+                  (role === 'manufacturer' ? MANUFACTURER_STAGES.has(stage.id)
+                   : role === 'lab'        ? LAB_STAGES.has(stage.id)
+                   : false);
+
+                return (
+                  <div key={stage.id} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '0.9rem 1.1rem',
+                    borderRadius: 'var(--radius-md)',
+                    border: current
+                      ? `1px solid ${stage.color}`
+                      : done ? '1px solid var(--border)' : '1px solid var(--border)',
+                    background: current ? `color-mix(in srgb, ${stage.color} 6%, transparent)` : 'transparent',
+                    opacity: pending ? 0.45 : 1,
+                    transition: 'all 0.2s',
+                    flexWrap: 'wrap', gap: '0.5rem',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <div style={{
+                        width: 26, height: 26, borderRadius: '50%',
+                        background: done || current ? stage.color : 'var(--border)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        color: '#fff', flexShrink: 0,
+                      }}>
+                        <CheckCircle2 size={14} />
+                      </div>
+                      <div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: '0.85rem', color: 'var(--text)' }}>
+                          {stage.id + 1}. {stage.label}
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  {current && stage.action && (
-                    stage.isLink
-                      ? (
-                        <Link to={`/verify?id=${tokenId}`} className="btn btn-accent" style={{ padding: '0.4rem 1rem', fontSize: '0.76rem' }}>
-                          {stage.icon} {stage.actionLabel}
-                        </Link>
-                      )
-                      : (
-                        <button
-                          className="btn btn-outline"
-                          style={{ padding: '0.4rem 1rem', fontSize: '0.76rem' }}
-                          onClick={() => handleAction(stage.action)}
-                          disabled={actionLoading || gaslessLoading}
-                        >
-                          {stage.icon} {stage.actionLabel}
-                        </button>
-                      )
-                  )}
-                </div>
-              );
-            })}
+                    {canAct && (
+                      stage.isLink
+                        ? (
+                          <Link to={`/lab?verify=${tokenId}`} className="btn btn-accent" style={{ padding: '0.4rem 1rem', fontSize: '0.76rem' }}>
+                            {stage.icon} {stage.actionLabel}
+                          </Link>
+                        )
+                        : (
+                          <button
+                            className="btn btn-outline"
+                            style={{ padding: '0.4rem 1rem', fontSize: '0.76rem' }}
+                            onClick={() => handleAction(stage.action)}
+                            disabled={actionLoading || gaslessLoading}
+                          >
+                            {stage.icon} {stage.actionLabel}
+                          </button>
+                        )
+                    )}
+                  </div>
+                );
+              })}
           </div>
         </div>
 
