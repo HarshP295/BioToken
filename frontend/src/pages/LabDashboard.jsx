@@ -18,6 +18,7 @@ import { ethers } from 'ethers';
 import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
 import { useLabVerification, LAB_STEPS } from '../hooks/useLabVerification';
 import DNABackground from '../components/DNABackground';
+import { useRole } from '../hooks/useRole';
 
 /* ── Status metadata ──────────────────────────────────────────── */
 const STATUS_META = [
@@ -607,6 +608,7 @@ function SuccessCard({ txReceipt, tokenId }) {
 export default function LabDashboard() {
   const { ready, authenticated } = useAuth();
   const { wallets } = useWallets();
+  const { role, roleLoading } = useRole();
   const {
     step, tokenData, aiResult, zkProof, txReceipt, error, loading,
     fetchToken, runAiCheck, generateProof, submitVerification, reset,
@@ -734,6 +736,51 @@ export default function LabDashboard() {
           }}>
             <Info size={16} /> Wallet disconnected — use Connect Wallet above
           </div>
+        </div>
+      </>
+    );
+  }
+
+  if (authenticated && roleLoading) {
+    return (
+      <>
+        <DNABackground />
+        <div style={{
+          position: 'relative', zIndex: 1,
+          minHeight: '80vh', display: 'flex',
+          alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{
+            fontFamily: "'Courier New', monospace",
+            fontSize: '0.82rem', color: '#6B7280',
+            letterSpacing: '0.08em',
+          }}>LOADING ROLE…</div>
+        </div>
+      </>
+    );
+  }
+
+  if (authenticated && role !== 'lab') {
+    return (
+      <>
+        <DNABackground />
+        <div style={{
+          position: 'relative', zIndex: 1,
+          minHeight: '80vh', display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          textAlign: 'center', padding: '4rem 1.5rem',
+        }}>
+          <div style={{
+            fontFamily: "'Libre Baskerville', serif",
+            fontSize: '1.5rem', fontWeight: 700,
+            color: '#0d1f1a', marginBottom: '0.75rem',
+          }}>Access Restricted</div>
+          <p style={{
+            fontFamily: "'Playfair Display', serif",
+            color: '#6B7280', fontSize: '0.95rem', maxWidth: 360,
+          }}>
+            This console is for registered lab accounts only. Your wallet is registered as: <strong>{role || 'unregistered'}</strong>
+          </p>
         </div>
       </>
     );

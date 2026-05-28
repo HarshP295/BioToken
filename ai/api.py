@@ -2,6 +2,17 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import sys, os, numpy as np, io, csv
+import datetime
+from dotenv import load_dotenv
+from motor.motor_asyncio import AsyncIOMotorClient
+
+# Load .env from project root (one level up from ai/)
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+
+MONGO_URI = os.environ.get("MONGODB_URI", "mongodb://localhost:27017")
+mongo_client = AsyncIOMotorClient(MONGO_URI)
+db = mongo_client["biotoken"]
+users_collection = db["users"]
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 from verifier import verify_reagent, FEATURES
@@ -33,6 +44,7 @@ class VerifyResponse(BaseModel):
     predicted_rt: float
     observed_rt: float
     pct_deviation: float
+    threshold: float
     result: str
 
 class ProofRequest(BaseModel):
@@ -306,6 +318,18 @@ async def register_role(req: RegisterRoleRequest):
             tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
             receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
 
+            await users_collection.update_one(
+                {"walletAddress": req.wallet_address.lower()},
+                {"$set": {
+                    "walletAddress": req.wallet_address.lower(),
+                    "role": "lab",
+                    "labRoleGranted": True,
+                    "labRoleTxHash": receipt.transactionHash.hex(),
+                    "registeredAt": datetime.datetime.utcnow().isoformat(),
+                    "lastLoginAt": datetime.datetime.utcnow().isoformat(),
+                }},
+                upsert=True
+            )
             return {
                 "success": True,
                 "role": "lab",
@@ -315,6 +339,18 @@ async def register_role(req: RegisterRoleRequest):
             }
         except ImportError:
             # web3 not installed — grant role anyway, admin can do manually
+            await users_collection.update_one(
+                {"walletAddress": req.wallet_address.lower()},
+                {"$set": {
+                    "walletAddress": req.wallet_address.lower(),
+                    "role": "lab",
+                    "labRoleGranted": False,
+                    "labRoleTxHash": None,
+                    "registeredAt": datetime.datetime.utcnow().isoformat(),
+                    "lastLoginAt": datetime.datetime.utcnow().isoformat(),
+                }},
+                upsert=True
+            )
             return {
                 "success": True,
                 "role": "lab",
@@ -326,6 +362,18 @@ async def register_role(req: RegisterRoleRequest):
             raise HTTPException(500, f"Failed to grant LAB_ROLE: {str(e)}")
 
     # Manufacturer — no on-chain action needed
+    await users_collection.update_one(
+        {"walletAddress": req.wallet_address.lower()},
+        {"$set": {
+            "walletAddress": req.wallet_address.lower(),
+            "role": "manufacturer",
+            "labRoleGranted": False,
+            "labRoleTxHash": None,
+            "registeredAt": datetime.datetime.utcnow().isoformat(),
+            "lastLoginAt": datetime.datetime.utcnow().isoformat(),
+        }},
+        upsert=True
+    )
     return {
         "success": True,
         "role": "manufacturer",
@@ -333,6 +381,30 @@ async def register_role(req: RegisterRoleRequest):
         "tx_hash": None,
         "message": "Manufacturer role registered",
     }
+
+@app.get("/api/user/{wallet}")
+async def get_user(wallet: str):
+    """
+    Returns role info for a wallet address.
+    Returns 404 if user not registered yet.
+    """
+    user = await users_collection.find_one(
+        {"walletAddress": wallet.lower()},
+        {"_id": 0}
+    )
+    if not user:
+        raise HTTPException(404, "User not registered")
+    return user
+
+
+@app.patch("/api/user/{wallet}/login")
+async def update_last_login(wallet: str):
+    await users_collection.update_one(
+        {"walletAddress": wallet.lower()},
+        {"$set": {"lastLoginAt": datetime.datetime.utcnow().isoformat()}}
+    )
+    return {"ok": True}
+
 
 @app.get("/health")
 async def health():
