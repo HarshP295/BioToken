@@ -5,6 +5,7 @@ import LandingPage from './pages/LandingPage';
 import Dashboard from './pages/Dashboard';
 import LabDashboard from './pages/LabDashboard';
 import MintToken from './pages/MintToken';
+import VerifyToken from './pages/VerifyToken';
 
 import TokenDetails from './pages/TokenDetails';
 import RoleSelection from './pages/RoleSelection';
@@ -128,12 +129,12 @@ export default function App() {
 
               {/* Lab routes */}
               <Route path="/lab" element={
-                role === 'manufacturer' ? <Navigate to="/dashboard" replace /> :
                 <LabDashboard />
               } />
 
               {/* Shared routes */}
               <Route path="/details" element={<TokenDetails contract={contract} account={account} />} />
+              <Route path="/verify" element={<VerifyToken contract={contract} />} />
             </Routes>
           )}
         </main>
