@@ -14,7 +14,13 @@ mongo_client = AsyncIOMotorClient(MONGO_URI)
 db = mongo_client["biotoken"]
 users_collection = db["users"]
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+ai_dir = os.path.dirname(__file__)
+if ai_dir not in sys.path:
+    sys.path.insert(0, ai_dir)
+src_dir = os.path.join(ai_dir, "src")
+if src_dir not in sys.path:
+    sys.path.insert(0, src_dir)
+
 from verifier import verify_reagent
 from peaks_extractor import extract_peaks, peaks_from_intensities
 

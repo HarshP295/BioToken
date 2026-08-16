@@ -435,7 +435,7 @@ export default function Dashboard({ contract }) {
                     textTransform: 'uppercase',
                     color: '#00C896',
                     marginBottom: '0.6rem',
-                  }}>LAB VIEW</div>
+                  }}>MANUFACTURER VIEW</div>
                   <h1 style={{
                     fontFamily: "'Libre Baskerville', serif",
                     fontSize: '3rem',

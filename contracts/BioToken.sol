@@ -116,6 +116,7 @@ contract BioToken is ERC721, AccessControl {
         bytes32 vk,
         bytes calldata marketplaceSig
     ) external returns (uint256) {
+        require(hasRole(MANUFACTURER_ROLE, msg.sender), "BioToken: caller lacks MANUFACTURER_ROLE");
         uint256 tokenId = _nextTokenId++;
         _safeMint(msg.sender, tokenId);
 

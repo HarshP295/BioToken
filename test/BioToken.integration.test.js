@@ -116,7 +116,7 @@ describe("BioToken — Integration (real Groth16 verifier)", function () {
             )
         )
             .to.emit(bioToken, "TokenVerified")
-            .withArgs(tokenId);
+            .withArgs(tokenId, lab.address);
 
         const data = await bioToken.getTokenData(tokenId);
         expect(data.status).to.equal(3); // VERIFIED
