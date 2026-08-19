@@ -15,7 +15,7 @@ import {
 import { useAuth } from '../hooks/useAuth';
 import { useWallets } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
-import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
+import { AMOY_RPC_URL, CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
 import { useLabVerification, LAB_STEPS } from '../hooks/useLabVerification';
 import DNABackground from '../components/DNABackground';
 import { useRole } from '../hooks/useRole';
@@ -48,7 +48,7 @@ function LabTokensOverview({ wallets }) {
         const signer = await bp.getSigner();
         contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
       } else {
-        const fp = new ethers.JsonRpcProvider('https://rpc-amoy.polygon.technology');
+        const fp = new ethers.JsonRpcProvider(AMOY_RPC_URL);
         contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, fp);
       }
       const fetched = [];

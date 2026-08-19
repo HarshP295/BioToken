@@ -11,7 +11,7 @@ import DNABackground from '../components/DNABackground';
 import { useAuth } from '../hooks/useAuth';
 import { useWallets } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
-import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
+import { AMOY_RPC_URL, CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
 
 /* ── status meta ─────────────────────────────────────────────── */
 const STATUS_META = [
@@ -366,7 +366,7 @@ export default function Dashboard({ contract }) {
         const signer = await bp.getSigner();
         c = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
       } else {
-        const fp = new ethers.JsonRpcProvider('https://rpc-amoy.polygon.technology');
+        const fp = new ethers.JsonRpcProvider(AMOY_RPC_URL);
         c = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, fp);
       }
     }

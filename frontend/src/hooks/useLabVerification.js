@@ -16,7 +16,7 @@ import { ethers } from 'ethers'
 import { useWallets, usePrivy } from '@privy-io/react-auth'
 import { createSmartClient } from '../lib/pimlico'
 import { encodeFunctionData } from 'viem'
-import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../config'
+import { AMOY_RPC_URL, CONTRACT_ADDRESS, CONTRACT_ABI } from '../config'
 
 // ─── Circuit config (matches fingerprint.circom) ─────────────────────────────
 const N_PEAKS    = 10
@@ -55,7 +55,7 @@ export function useLabVerification() {
       return new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer)
     }
     // Read-only fallback
-    const fp = new ethers.JsonRpcProvider('https://rpc-amoy.polygon.technology')
+    const fp = new ethers.JsonRpcProvider(AMOY_RPC_URL)
     return new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, fp)
   }, [wallets])
 

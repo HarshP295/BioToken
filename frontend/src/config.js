@@ -5,6 +5,7 @@ import BioTokenArtifact from "../../artifacts/contracts/BioToken.sol/BioToken.js
 
 export const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS;
 export const CONTRACT_ABI = BioTokenArtifact.abi;
+export const AMOY_RPC_URL = import.meta.env.VITE_AMOY_RPC_URL || "https://polygon-amoy.drpc.org";
 
 export const CHAIN_OPTIONS = {
     // Polygon Amoy Testnet
@@ -12,7 +13,7 @@ export const CHAIN_OPTIONS = {
         chainId: "0x13882",
         chainName: "Polygon Amoy Testnet",
         nativeCurrency: { name: "MATIC", symbol: "MATIC", decimals: 18 },
-        rpcUrls: ["https://rpc-amoy.polygon.technology/"],
+        rpcUrls: [AMOY_RPC_URL],
         blockExplorerUrls: ["https://amoy.polygonscan.com/"],
     },
     // Local Hardhat Network (for dev)

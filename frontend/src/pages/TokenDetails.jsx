@@ -9,7 +9,7 @@ import { useAuth } from '../hooks/useAuth';
 import { useRole } from '../hooks/useRole';
 import { useWallets } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
-import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
+import { AMOY_RPC_URL, CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
 import { useGaslessContract } from '../hooks/useGaslessContract';
 
 const LIFECYCLE = [
@@ -58,7 +58,7 @@ export default function TokenDetails({ contract }) {
         const signer = await browserProvider.getSigner();
         activeContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
       } else {
-        const fallbackProvider = new ethers.JsonRpcProvider("https://rpc-amoy.polygon.technology");
+        const fallbackProvider = new ethers.JsonRpcProvider(AMOY_RPC_URL);
         activeContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, fallbackProvider);
       }
     }

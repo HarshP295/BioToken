@@ -12,10 +12,11 @@ function roleKey(walletAddress) {
 }
 
 export function useRole() {
-  const { authenticated, user } = usePrivy();
+  const { authenticated } = usePrivy();
   const { wallets } = useWallets();
 
   const [role, setRole]                       = useState(null);       // 'manufacturer' | 'lab' | null
+  const [pendingRole, setPendingRole]         = useState(null);
   const [needsRoleSelection, setNeedsRoleSelection] = useState(false);
   const [roleLoading, setRoleLoading]         = useState(false);
   const [isRegistering, setIsRegistering]     = useState(false);
@@ -27,15 +28,8 @@ export function useRole() {
 
     const walletAddress = wallets[0].address;
 
-    // 1. Check localStorage first (instant)
-    const cached = localStorage.getItem(roleKey(walletAddress));
-    if (cached === 'manufacturer' || cached === 'lab') {
-      setRole(cached);
-      setNeedsRoleSelection(false);
-      return;
-    }
-
-    // 2. Ask the API
+    // The API is authoritative because localStorage does not contain the
+    // role-specific on-chain grant state.
     const fetchRole = async () => {
       setRoleLoading(true);
       setNeedsRoleSelection(false);
@@ -55,10 +49,21 @@ export function useRole() {
 
         const data = await res.json();
         const resolved = data.role === 'lab' ? 'lab' : 'manufacturer';
-        setRole(resolved);
-        setNeedsRoleSelection(false);
+        const granted = resolved === 'lab'
+          ? data.labRoleGranted === true
+          : data.manufacturerRoleGranted === true;
 
-        // Cache for next visit
+        if (!granted) {
+          setRole(null);
+          setPendingRole(resolved);
+          setNeedsRoleSelection(false);
+          localStorage.removeItem(roleKey(walletAddress));
+          return;
+        }
+
+        setRole(resolved);
+        setPendingRole(null);
+        setNeedsRoleSelection(false);
         localStorage.setItem(roleKey(walletAddress), resolved);
 
         // Update lastLoginAt silently
@@ -100,6 +105,7 @@ export function useRole() {
 
       // Persist
       setRole(selectedRole);
+      setPendingRole(null);
       setNeedsRoleSelection(false);
       localStorage.setItem(roleKey(walletAddress), selectedRole);
     } catch (err) {
@@ -110,12 +116,43 @@ export function useRole() {
     }
   }, [wallets]);
 
+  const retryRoleGrant = useCallback(async () => {
+    const walletAddress = wallets?.[0]?.address;
+    if (!walletAddress) throw new Error('No wallet connected');
+
+    setIsRegistering(true);
+    setRegisterError(null);
+    try {
+      const res = await fetch(`${AI_URL}/api/retry-role-grant/${walletAddress}`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Role grant retry failed (${res.status})`);
+      }
+
+      const data = await res.json();
+      setRole(data.role);
+      setPendingRole(null);
+      setNeedsRoleSelection(false);
+      localStorage.setItem(roleKey(walletAddress), data.role);
+    } catch (err) {
+      setRegisterError(err.message);
+      throw err;
+    } finally {
+      setIsRegistering(false);
+    }
+  }, [wallets]);
+
   return {
     role,
+    pendingRole,
+    rolePendingOnChain: pendingRole !== null,
     needsRoleSelection,
     isRegistering,
     registerError,
     roleLoading,
     selectRole,
+    retryRoleGrant,
   };
 }

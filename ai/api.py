@@ -5,6 +5,8 @@ import sys, os, numpy as np, re
 import datetime
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import ConfigurationError, ServerSelectionTimeoutError
+from web3 import Web3
 
 # Load .env from project root (one level up from ai/)
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -92,6 +94,75 @@ class ProofResponse(BaseModel):
 class RegisterRoleRequest(BaseModel):
     wallet_address: str
     role: str
+
+
+ROLE_NAMES = {"lab", "manufacturer"}
+ROLE_FLAG_FIELDS = {
+    "lab": ("labRoleGranted", "labRoleTxHash"),
+    "manufacturer": ("manufacturerRoleGranted", "manufacturerRoleTxHash"),
+}
+
+
+def mongo_unavailable(error: Exception) -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail=(
+            "Role registration requires MongoDB, but the configured database "
+            f"could not be reached: {error}. Check MONGODB_URI in .env."
+        ),
+    )
+
+
+def grant_onchain_role(wallet_address: str, role_name: str) -> str:
+    role = role_name.lower().strip()
+    if role not in ROLE_NAMES:
+        raise ValueError("Role must be 'manufacturer' or 'lab'")
+
+    rpc_url = os.environ.get("AMOY_RPC_URL")
+    contract_address = os.environ.get(
+        "VITE_CONTRACT_ADDRESS",
+        "0x9204D687ecB511ac0d69E450C36a6a476F7A9425",
+    )
+    admin_key = os.environ.get("DEPLOYER_PRIVATE_KEY")
+    if not rpc_url:
+        raise RuntimeError("AMOY_RPC_URL not configured")
+    if not admin_key:
+        raise RuntimeError("DEPLOYER_PRIVATE_KEY not configured")
+
+    artifact_path = os.path.join(
+        os.path.dirname(__file__), "..",
+        "artifacts", "contracts", "BioToken.sol", "BioToken.json",
+    )
+    import json
+    with open(artifact_path) as artifact_file:
+        artifact = json.load(artifact_file)
+
+    w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 20}))
+    if w3.eth.chain_id != 80002:
+        raise RuntimeError("Configured RPC is not Polygon Amoy (chain ID 80002)")
+
+    admin_account = w3.eth.account.from_key(admin_key)
+    contract = w3.eth.contract(
+        address=Web3.to_checksum_address(contract_address),
+        abi=artifact["abi"],
+    )
+    recipient = Web3.to_checksum_address(wallet_address)
+    role_hash = Web3.keccak(text=f"{role.upper()}_ROLE")
+
+    nonce = w3.eth.get_transaction_count(admin_account.address, "pending")
+    transaction = contract.functions.grantRole(role_hash, recipient).build_transaction({
+        "from": admin_account.address,
+        "nonce": nonce,
+        "chainId": 80002,
+        "gas": 100_000,
+        "gasPrice": w3.eth.gas_price,
+    })
+    signed = admin_account.sign_transaction(transaction)
+    tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
+    receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
+    if receipt["status"] != 1:
+        raise RuntimeError(f"Transaction reverted: {tx_hash.hex()}")
+    return tx_hash.hex()
 
 
 # ── RT estimation from peak profile ────────────────────────────
@@ -247,92 +318,119 @@ async def extract_peaks_endpoint(file: UploadFile = File(...)):
 @app.post("/register-role")
 async def register_role(req: RegisterRoleRequest):
     role = req.role.lower().strip()
-    if role not in ("manufacturer", "lab"):
+    if role not in ROLE_NAMES:
         raise HTTPException(400, "Role must be 'manufacturer' or 'lab'")
 
-    if role == "lab":
+    wallet = Web3.to_checksum_address(req.wallet_address)
+    granted_field, tx_field = ROLE_FLAG_FIELDS[role]
+    now = datetime.datetime.utcnow().isoformat()
+    try:
+        await users_collection.update_one(
+            {"walletAddress": wallet.lower()},
+            {"$set": {
+                "walletAddress": wallet.lower(),
+                "role": role,
+                granted_field: False,
+                tx_field: None,
+                f"{role}RoleGrantError": None,
+                "registeredAt": now,
+                "lastLoginAt": now,
+            }},
+            upsert=True
+        )
+    except (ConfigurationError, ServerSelectionTimeoutError) as e:
+        raise mongo_unavailable(e) from e
+
+    try:
+        tx_hash = grant_onchain_role(wallet, role)
+    except Exception as error:
         try:
-            from web3 import Web3
-            import json as _json
-
-            artifacts_path = os.path.join(
-                os.path.dirname(__file__), "..",
-                "artifacts", "contracts", "BioToken.sol", "BioToken.json"
-            )
-            with open(artifacts_path) as f:
-                artifact = _json.load(f)
-
-            rpc_url = os.environ.get("AMOY_RPC_URL", "https://rpc-amoy.polygon.technology")
-            w3 = Web3(Web3.HTTPProvider(rpc_url))
-            contract_address = os.environ.get("VITE_CONTRACT_ADDRESS", "0x9204D687ecB511ac0d69E450C36a6a476F7A9425")
-            contract = w3.eth.contract(address=Web3.to_checksum_address(contract_address), abi=artifact["abi"])
-
-            admin_key = os.environ.get("DEPLOYER_PRIVATE_KEY")
-            if not admin_key:
-                raise HTTPException(500, "DEPLOYER_PRIVATE_KEY not configured")
-            admin_account = w3.eth.account.from_key(admin_key)
-
-            lab_address = Web3.to_checksum_address(req.wallet_address)
-            tx = contract.functions.grantLabRole(lab_address).build_transaction({
-                "from": admin_account.address,
-                "nonce": w3.eth.get_transaction_count(admin_account.address),
-                "gas": 200_000,
-                "gasPrice": w3.eth.gas_price,
-                "chainId": 80002,
-            })
-            signed = admin_account.sign_transaction(tx)
-            tx_hash = w3.eth.send_raw_transaction(signed.raw_transaction)
-            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=60)
-
             await users_collection.update_one(
-                {"walletAddress": req.wallet_address.lower()},
-                {"$set": {
-                    "walletAddress": req.wallet_address.lower(),
-                    "role": "lab", "labRoleGranted": True,
-                    "labRoleTxHash": receipt.transactionHash.hex(),
-                    "registeredAt": datetime.datetime.utcnow().isoformat(),
-                    "lastLoginAt": datetime.datetime.utcnow().isoformat(),
-                }},
-                upsert=True
+                {"walletAddress": wallet.lower()},
+                {"$set": {f"{role}RoleGrantError": str(error), granted_field: False}},
             )
-            return {"success": True, "role": "lab", "wallet": req.wallet_address,
-                    "tx_hash": receipt.transactionHash.hex(), "message": "LAB_ROLE granted on-chain"}
+        except (ConfigurationError, ServerSelectionTimeoutError) as mongo_error:
+            raise mongo_unavailable(mongo_error) from mongo_error
+        raise HTTPException(
+            502,
+            f"MongoDB registration succeeded, but on-chain {role} role grant failed: {error}",
+        ) from error
 
-        except ImportError:
+    try:
+        await users_collection.update_one(
+            {"walletAddress": wallet.lower()},
+            {"$set": {
+                granted_field: True,
+                tx_field: tx_hash,
+                f"{role}RoleGrantError": None,
+            }},
+        )
+    except (ConfigurationError, ServerSelectionTimeoutError) as e:
+        raise mongo_unavailable(e) from e
+    return {"success": True, "role": role, "wallet": wallet,
+            "tx_hash": tx_hash,
+            "message": f"{role.upper()}_ROLE granted on-chain"}
+
+
+@app.post("/api/retry-role-grant/{wallet}")
+async def retry_role_grant(wallet: str):
+    try:
+        checksum_wallet = Web3.to_checksum_address(wallet)
+    except ValueError as error:
+        raise HTTPException(400, "Invalid wallet address") from error
+
+    try:
+        user = await users_collection.find_one({"walletAddress": checksum_wallet.lower()}, {"_id": 0})
+    except (ConfigurationError, ServerSelectionTimeoutError) as e:
+        raise mongo_unavailable(e) from e
+    if not user:
+        raise HTTPException(404, "User not registered")
+
+    role = user.get("role", "").lower().strip()
+    if role not in ROLE_NAMES:
+        raise HTTPException(400, "User has no supported role to grant")
+
+    granted_field, tx_field = ROLE_FLAG_FIELDS[role]
+    if user.get(granted_field) is True:
+        return {"success": True, "role": role, "wallet": checksum_wallet,
+                "tx_hash": user.get(tx_field), "message": "Role already granted on-chain"}
+
+    try:
+        tx_hash = grant_onchain_role(checksum_wallet, role)
+    except Exception as error:
+        try:
             await users_collection.update_one(
-                {"walletAddress": req.wallet_address.lower()},
-                {"$set": {
-                    "walletAddress": req.wallet_address.lower(),
-                    "role": "lab", "labRoleGranted": False, "labRoleTxHash": None,
-                    "registeredAt": datetime.datetime.utcnow().isoformat(),
-                    "lastLoginAt": datetime.datetime.utcnow().isoformat(),
-                }},
-                upsert=True
+                {"walletAddress": checksum_wallet.lower()},
+                {"$set": {f"{role}RoleGrantError": str(error), granted_field: False}},
             )
-            return {"success": True, "role": "lab", "wallet": req.wallet_address,
-                    "tx_hash": None, "message": "Role registered (web3 not available)"}
-        except Exception as e:
-            raise HTTPException(500, f"Failed to grant LAB_ROLE: {str(e)}")
+        except (ConfigurationError, ServerSelectionTimeoutError) as mongo_error:
+            raise mongo_unavailable(mongo_error) from mongo_error
+        raise HTTPException(502, f"On-chain {role} role retry failed: {error}") from error
 
-    await users_collection.update_one(
-        {"walletAddress": req.wallet_address.lower()},
-        {"$set": {
-            "walletAddress": req.wallet_address.lower(),
-            "role": "manufacturer", "labRoleGranted": False, "labRoleTxHash": None,
-            "registeredAt": datetime.datetime.utcnow().isoformat(),
-            "lastLoginAt": datetime.datetime.utcnow().isoformat(),
-        }},
-        upsert=True
-    )
-    return {"success": True, "role": "manufacturer", "wallet": req.wallet_address,
-            "tx_hash": None, "message": "Manufacturer role registered"}
+    try:
+        await users_collection.update_one(
+            {"walletAddress": checksum_wallet.lower()},
+            {"$set": {
+                granted_field: True,
+                tx_field: tx_hash,
+                f"{role}RoleGrantError": None,
+            }},
+        )
+    except (ConfigurationError, ServerSelectionTimeoutError) as e:
+        raise mongo_unavailable(e) from e
+    return {"success": True, "role": role, "wallet": checksum_wallet,
+            "tx_hash": tx_hash,
+            "message": f"{role.upper()}_ROLE granted on-chain"}
 
 
 # ── User endpoints ──────────────────────────────────────────────
 
 @app.get("/api/user/{wallet}")
 async def get_user(wallet: str):
-    user = await users_collection.find_one({"walletAddress": wallet.lower()}, {"_id": 0})
+    try:
+        user = await users_collection.find_one({"walletAddress": wallet.lower()}, {"_id": 0})
+    except (ConfigurationError, ServerSelectionTimeoutError) as e:
+        raise mongo_unavailable(e) from e
     if not user:
         raise HTTPException(404, "User not registered")
     return user
@@ -340,10 +438,13 @@ async def get_user(wallet: str):
 
 @app.patch("/api/user/{wallet}/login")
 async def update_last_login(wallet: str):
-    await users_collection.update_one(
-        {"walletAddress": wallet.lower()},
-        {"$set": {"lastLoginAt": datetime.datetime.utcnow().isoformat()}}
-    )
+    try:
+        await users_collection.update_one(
+            {"walletAddress": wallet.lower()},
+            {"$set": {"lastLoginAt": datetime.datetime.utcnow().isoformat()}}
+        )
+    except (ConfigurationError, ServerSelectionTimeoutError) as e:
+        raise mongo_unavailable(e) from e
     return {"ok": True}
 
 
