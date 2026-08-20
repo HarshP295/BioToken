@@ -22,11 +22,34 @@ export function useRole() {
   const [isRegistering, setIsRegistering]     = useState(false);
   const [registerError, setRegisterError]     = useState(null);
 
+  // Reset role state when auth session ends so a fresh login/wallet can re-resolve role.
+  useEffect(() => {
+    if (authenticated) return;
+    setRole(null);
+    setPendingRole(null);
+    setNeedsRoleSelection(false);
+    setRoleLoading(false);
+    setIsRegistering(false);
+    setRegisterError(null);
+  }, [authenticated]);
+
   // ── On auth + wallet ready: resolve role ────────────────────────
   useEffect(() => {
-    if (!authenticated || !wallets?.[0]) return;
+    if (!authenticated) return;
 
-    const walletAddress = wallets[0].address;
+    const walletAddress = wallets?.[0]?.address;
+
+    if (!walletAddress) {
+      // Keep a short loading state while Privy is still resolving the active wallet.
+      setRole(null);
+      setPendingRole(null);
+      setNeedsRoleSelection(false);
+      setRoleLoading(true);
+      return;
+    }
+
+    let cancelled = false;
+    const controller = new AbortController();
 
     // The API is authoritative because localStorage does not contain the
     // role-specific on-chain grant state.
@@ -36,18 +59,34 @@ export function useRole() {
       setRegisterError(null);
 
       try {
-        const res = await fetch(`${AI_URL}/api/user/${walletAddress}`);
+        const res = await fetch(`${AI_URL}/api/user/${walletAddress}`, {
+          signal: controller.signal,
+        });
+
+        if (cancelled) return;
 
         if (res.status === 404) {
           // User not registered — show role selection screen
           setNeedsRoleSelection(true);
-          setRoleLoading(false);
+          setRole(null);
+          setPendingRole(null);
           return;
         }
 
         if (!res.ok) throw new Error(`Server error ${res.status}`);
 
         const data = await res.json();
+        if (cancelled) return;
+
+        if (data.role !== 'lab' && data.role !== 'manufacturer') {
+          // Malformed/incomplete user record: fall back to role selection.
+          setRole(null);
+          setPendingRole(null);
+          setNeedsRoleSelection(true);
+          localStorage.removeItem(roleKey(walletAddress));
+          return;
+        }
+
         const resolved = data.role === 'lab' ? 'lab' : 'manufacturer';
         const granted = resolved === 'lab'
           ? data.labRoleGranted === true
@@ -69,15 +108,21 @@ export function useRole() {
         // Update lastLoginAt silently
         fetch(`${AI_URL}/api/user/${walletAddress}/login`, { method: 'PATCH' }).catch(() => {});
       } catch (err) {
+        if (err?.name === 'AbortError' || cancelled) return;
         console.error('useRole: fetch error', err);
         // Network error — show role selection so user isn't stuck
         setNeedsRoleSelection(true);
       } finally {
-        setRoleLoading(false);
+        if (!cancelled) setRoleLoading(false);
       }
     };
 
     fetchRole();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
   }, [authenticated, wallets?.[0]?.address]);
 
   // ── selectRole: called from RoleSelection page ──────────────────
