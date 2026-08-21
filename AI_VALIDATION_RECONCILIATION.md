@@ -45,26 +45,13 @@ The manuscript claim of 100% accuracy and 0% FPR is therefore not reproduced by 
 
 ## Layer 3: RepoRT multi-laboratory validation
 
-### Verified
+### Status: not completed
 
-- The official repository supplied for this phase is `https://github.com/michaelwitting/RepoRT`.
-- Its current checkout contains `raw_data/` with 421 dataset directories and 184,360 RT records, not the manuscript's described 88,325 measurements from 80 datasets.
-- The raw files contain dataset IDs, compound names, RT values, PubChem IDs, and canonical SMILES.
-- Using the exact stated rule, grouped by `(dataset_id, compound name)`, only 579 records were labeled ANOMALY at `abs(RT - local_median) / local_median > 0.25`; 90,197 records were labeled GENUINE.
-- RepoRT RT values were converted from minutes to seconds before calling the deployed SMRT-trained verifier.
-- A deterministic balanced sample of 500 GENUINE and 500 ANOMALY records was evaluated with the Phase 1 deployed classifier frozen and without retraining.
+The RepoRT paper was identified as Kretschmer et al., Nature Methods 21, 153-155 (2024), DOI `10.1038/s41592-023-02143-z`.
 
-### Actual result
+A time-boxed search through the paper metadata, GitHub repository search/API, and Zenodo search did not locate an official downloadable RepoRT dataset or release with the required 88,325 rows and dataset/compound identifiers. The 1,000-sample grouping and labeling protocol was therefore not run.
 
-- Evaluated records: 1,000 (500 GENUINE, 500 ANOMALY)
-- AUC: `0.42142600`
-- Detection rate: `98.6000%`
-- FPR: `94.4000%`
-- Confusion matrix: `TN=28, FP=472, FN=7, TP=493`
-
-### Difference from the manuscript
-
-The result materially diverges from the manuscript's claimed AUC `0.9412`, detection `89.4%`, and FPR `5.1%`. The current official repository release also differs substantially from the paper's stated dataset size and dataset count. The RepoRT claim is therefore not reproduced by the available official checkout.
+No RepoRT AUC, detection rate, or FPR is reported. The manuscript's claimed AUC 0.9412, detection 89.4%, and FPR 5.1% remain unverified.
 
 ## Final assessment
 
