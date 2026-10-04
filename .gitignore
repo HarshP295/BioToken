@@ -10,3 +10,14 @@ coverage.json
 deployments
 AI_VALIDATION_RECONCILIATION
 
+
+# Python / tooling
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Circuit build intermediates and compiler binary
+circuits/circom.exe
+*.wtns
