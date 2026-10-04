@@ -86,6 +86,4 @@ npx hardhat run scripts/integrate.js # full lifecycle incl. AI → ZK proof → 
 
 All work happens on `feature/*` branches, merged into `dev` via pull request. `dev` is merged into `main` when stable.
 
-## License
 
-MIT
