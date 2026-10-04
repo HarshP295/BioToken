@@ -96,7 +96,9 @@ export function useLabVerification() {
   }, [getContract])
 
   // ── Step 2: AI pre-screen ──────────────────────────────────────────────────
-  const runAiCheck = useCallback(async (peaks) => {
+  // Inputs are the reagent's SMILES and the retention time (seconds) the lab
+  // measured. The Gold Standard peaks are NOT sent — they stay in the browser.
+  const runAiCheck = useCallback(async ({ smiles, observedRt }) => {
     setStep(LAB_STEPS.AI_CHECK)
     setError(null)
     setLoading(true)
@@ -104,13 +106,16 @@ export function useLabVerification() {
     try {
       const AI_URL = import.meta.env.VITE_AI_API_URL || 'http://localhost:8000'
 
-      // Step 2A: Convert 10 peaks → 137 features + observed_rt
+      // Step 2A: SMILES + observed RT → 137 RDKit features
       const featRes = await fetch(`${AI_URL}/compute-features`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ peaks: peaks.map(Number) }),
+        body: JSON.stringify({ smiles: smiles.trim(), observed_rt: Number(observedRt) }),
       })
-      if (!featRes.ok) throw new Error('Feature computation failed')
+      if (!featRes.ok) {
+        const detail = await featRes.json().catch(() => ({}))
+        throw new Error(detail.detail || 'Feature computation failed')
+      }
       const { observed_features, observed_rt } = await featRes.json()
 
       // Step 2B: AI classifier
@@ -123,7 +128,10 @@ export function useLabVerification() {
           token_id: Number(tokenData?.id || 0),
         }),
       })
-      if (!verifyRes.ok) throw new Error('AI verification failed')
+      if (!verifyRes.ok) {
+        const detail = await verifyRes.json().catch(() => ({}))
+        throw new Error(detail.detail || 'AI verification failed')
+      }
       const result = await verifyRes.json()
 
       setAiResult(result)
@@ -257,12 +265,12 @@ export function useLabVerification() {
   }, [wallets])
 
   // ── Full pipeline orchestrator ─────────────────────────────────────────────
-  const runFullPipeline = useCallback(async (tokenId, peaks, threshold = 10) => {
+  const runFullPipeline = useCallback(async (tokenId, peaks, reagent, threshold = 10) => {
     try {
       // Step 1
       await fetchToken(tokenId)
-      // Step 2
-      const aiRes = await runAiCheck(peaks)
+      // Step 2 — reagent = { smiles, observedRt }
+      const aiRes = await runAiCheck(reagent)
       if (!aiRes.genuine) return aiRes // stops here if anomaly
       // Step 3
       const proofData = await generateProof(peaks, threshold)

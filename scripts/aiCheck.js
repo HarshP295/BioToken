@@ -1,13 +1,12 @@
 // scripts/aiCheck.js
 // ─────────────────────────────────────────────────────────────────
-//  BioToken AI Check (JavaScript simulation)
+//  BioToken circuit pre-check (NOT the AI model)
 //
-//  Mirrors the intent of ai/src/verifier.py but runs in Node.js.
-//  The real Python model uses XGBoost + molecular descriptors +
-//  Morgan fingerprints to predict retention time and classify
-//  anomalies. This JS version performs the smoothness/consistency
-//  check on peak intensity values — the same logic the ZK circuit
-//  enforces, but as a fast pre-screen before proof generation.
+//  The AI anomaly detection lives in ai/src/verifier.py (XGBoost RT
+//  predictor + classifier) and is called over HTTP by integrate.js.
+//  This file only checks that every adjacent peak delta is within
+//  the threshold — the same constraint fingerprint.circom enforces —
+//  so a failing peak profile is caught before snarkjs runs.
 //
 //  Usage:
 //    const { aiPreScreen } = require("./aiCheck");

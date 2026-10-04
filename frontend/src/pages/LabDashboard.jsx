@@ -257,7 +257,7 @@ function LabTokensOverview({ wallets }) {
 /* ── Pipeline step definitions ────────────────────────────────── */
 const PIPELINE = [
   { id: 1, label: 'Fetch NFT',      desc: 'Read token data + vk from Polygon',     icon: <Search size={18} /> },
-  { id: 2, label: 'AI Pre-Screen',   desc: 'Anomaly detection on HPLC peaks',       icon: <Fingerprint size={18} /> },
+  { id: 2, label: 'AI Pre-Screen',   desc: 'XGBoost RT anomaly detection',          icon: <Fingerprint size={18} /> },
   { id: 3, label: 'ZK Proof',        desc: 'Client-side Groth16 proof generation',  icon: <ShieldCheck size={18} /> },
   { id: 4, label: 'On-Chain Verify', desc: 'Submit proof to smart contract',        icon: <Send size={18} /> },
 ];
@@ -412,6 +412,9 @@ function AiResultCard({ result }) {
           { label: 'Anomaly Prob', value: `${(result.anomaly_prob * 100).toFixed(2)}%` },
           { label: 'RT Deviation', value: `${result.pct_deviation?.toFixed(2) ?? '—'}%` },
           { label: 'Prediction', value: result.result },
+          { label: 'Observed RT', value: `${result.observed_rt?.toFixed(1) ?? '—'} s` },
+          { label: 'Predicted RT', value: `${result.predicted_rt?.toFixed(1) ?? '—'} s` },
+          { label: 'Threshold', value: result.threshold ?? '—' },
         ].map(m => (
           <div key={m.label} style={{
             padding: '0.6rem 0.8rem',
@@ -440,7 +443,7 @@ function AiResultCard({ result }) {
           fontFamily: "'Playfair Display', serif",
           fontSize: '0.82rem', color: '#065F46',
         }}>
-          Deviation within threshold — proceeding to ZK proof generation.
+          Anomaly probability below threshold — proceeding to ZK proof generation.
         </div>
       )}
       {!ok && (
@@ -622,6 +625,8 @@ export default function LabDashboard() {
   const [extracting,       setExtracting]       = useState(false);
   const [extractError,     setExtractError]     = useState(null);
   const [labDragging,      setLabDragging]      = useState(false);
+  const [reagentSmiles,    setReagentSmiles]    = useState('');      // reagent structure for RDKit
+  const [observedRt,       setObservedRt]       = useState('');      // lab-measured RT (seconds)
 
   // ── CSV upload → /extract-peaks ────────────────────────────────
   const handleLabFile = async (file) => {
@@ -666,7 +671,12 @@ export default function LabDashboard() {
       alert('Please upload a CSV to extract exactly 10 HPLC peak values.');
       return;
     }
-    await runAiCheck(peaks);
+    const rt = parseFloat(observedRt);
+    if (!reagentSmiles.trim() || !(rt > 0)) {
+      alert('Enter the reagent SMILES and the observed retention time (seconds).');
+      return;
+    }
+    await runAiCheck({ smiles: reagentSmiles, observedRt: rt });
   };
 
   const handleGenerateProof = async () => {
@@ -689,6 +699,8 @@ export default function LabDashboard() {
     setExtracting(false);
     setExtractError(null);
     setLabDragging(false);
+    setReagentSmiles('');
+    setObservedRt('');
   };
 
   // ── Unauthenticated state ──────────────────────────────────────
@@ -1262,6 +1274,51 @@ export default function LabDashboard() {
                       flexShrink: 0,
                     }}>{computedThreshold}</div>
                   </div>
+
+                  {/* Reagent identity + measured RT for the AI anomaly classifier */}
+                  <div style={{
+                    display: 'grid', gridTemplateColumns: '2fr 1fr',
+                    gap: '0.75rem', marginBottom: '1.25rem',
+                  }}>
+                    {[
+                      { id: 'lab-smiles', label: 'Reagent SMILES', value: reagentSmiles, set: setReagentSmiles,
+                        type: 'text', placeholder: 'e.g. CN1C=NC2=C1C(=O)N(C(=O)N2C)C' },
+                      { id: 'lab-rt', label: 'Observed RT (s)', value: observedRt, set: setObservedRt,
+                        type: 'number', placeholder: 'e.g. 636.2' },
+                    ].map(f => (
+                      <div key={f.id}>
+                        <label htmlFor={f.id} style={{
+                          display: 'block',
+                          fontFamily: "'Courier New', monospace",
+                          fontSize: '0.62rem', fontWeight: 700,
+                          letterSpacing: '0.1em', textTransform: 'uppercase',
+                          color: '#6B7280', marginBottom: '0.4rem',
+                        }}>{f.label}</label>
+                        <input
+                          id={f.id}
+                          type={f.type}
+                          step={f.type === 'number' ? 'any' : undefined}
+                          min={f.type === 'number' ? '0' : undefined}
+                          value={f.value}
+                          onChange={e => f.set(e.target.value)}
+                          placeholder={f.placeholder}
+                          required
+                          disabled={loading}
+                          style={{
+                            width: '100%', padding: '0.75rem 1rem',
+                            background: '#f7fbf9', border: '1.5px solid #e0ede9',
+                            borderRadius: '10px', color: '#0d1f1a',
+                            fontFamily: "'Courier New', monospace",
+                            fontSize: '0.85rem', outline: 'none',
+                          }}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <p style={{
+                    fontFamily: "'Playfair Display', serif",
+                    fontSize: '0.75rem', color: '#9CA3AF', marginTop: '-0.9rem', marginBottom: '1.25rem',
+                  }}>RDKit computes 137 molecular features from the SMILES; the classifier compares the measured RT with the predicted RT. Peak values stay in your browser.</p>
 
                   <button
                     type="submit"

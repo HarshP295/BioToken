@@ -5,16 +5,19 @@ from rdkit.Chem import AllChem, Descriptors, rdMolDescriptors
 
 RDLogger.DisableLog("rdApp.*")
 
+# Column order of data/SMRT_features_v2.csv (notebooks/01_eda.ipynb). The RT
+# scaler/predictor and the anomaly classifier were fitted on this exact order,
+# so it must not be changed without retraining (verifier.py checks it at load).
 PHYS_FEATURES = [
-    "logp",
-    "aromatic_rings",
     "mol_weight",
-    "heavy_atom_count",
-    "ring_count",
+    "logp",
+    "hbd",
     "hba",
     "tpsa",
     "rotatable_bonds",
-    "hbd",
+    "heavy_atom_count",
+    "ring_count",
+    "aromatic_rings",
 ]
 
 FP_FEATURES = [f"fp_{i}" for i in range(128)]
@@ -36,15 +39,15 @@ def inchi_to_mol(inchi: str) -> Chem.Mol | None:
 def compute_features(mol: Chem.Mol) -> dict:
     """Compute 137 molecular features: 9 physicochemical + 128 Morgan fingerprint bits."""
     features = {
-        "logp": Descriptors.MolLogP(mol),
-        "aromatic_rings": rdMolDescriptors.CalcNumAromaticRings(mol),
         "mol_weight": Descriptors.MolWt(mol),
+        "logp": Descriptors.MolLogP(mol),
+        "hbd": rdMolDescriptors.CalcNumHBD(mol),
+        "hba": rdMolDescriptors.CalcNumHBA(mol),
+        "tpsa": Descriptors.TPSA(mol),
+        "rotatable_bonds": rdMolDescriptors.CalcNumRotatableBonds(mol),
         "heavy_atom_count": mol.GetNumHeavyAtoms(),
         "ring_count": rdMolDescriptors.CalcNumRings(mol),
-        "hba": rdMolDescriptors.CalcNumHBA(mol),
-        "tpsa": rdMolDescriptors.CalcTPSA(mol),
-        "rotatable_bonds": rdMolDescriptors.CalcNumRotatableBonds(mol),
-        "hbd": rdMolDescriptors.CalcNumHBD(mol),
+        "aromatic_rings": rdMolDescriptors.CalcNumAromaticRings(mol),
     }
 
     fp = AllChem.GetMorganFingerprintAsBitVect(mol, radius=2, nBits=128)

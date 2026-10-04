@@ -11,16 +11,20 @@
 //  `hardhat run` spins up a fresh in-memory chain). For persistent
 //  networks (localhost, amoy) it reads deployments/<network>.json.
 //
+//  Step 4 calls the Python AI service (ai/api.py), so start it first:
+//    cd ai && uvicorn api:app --port 8000
+//
 //  Usage:
 //    npx hardhat run scripts/integrate.js
 //    npx hardhat run scripts/integrate.js --network localhost
 //    npx hardhat run scripts/integrate.js --network amoy
+//  Env: AI_API_URL (default http://localhost:8000), OBSERVED_RT (seconds)
 // ─────────────────────────────────────────────────────────────────
 
 const hre = require("hardhat");
 const fs  = require("fs");
 const path = require("path");
-const { aiPreScreen } = require("./aiCheck");
+const { aiPreScreen: circuitPreCheck } = require("./aiCheck");
 
 // ── Configuration ────────────────────────────────────────────────
 
@@ -28,12 +32,36 @@ const { aiPreScreen } = require("./aiCheck");
 const SAMPLE_PEAKS     = [100, 105, 108, 103, 101, 99, 102, 104, 100, 103];
 const SAMPLE_THRESHOLD = 10;
 
+// Reagent identity + RT the lab measured (caffeine; 636.2 s is the RT
+// predictor's estimate on the METLIN SMRT scale — caffeine is not in SMRT).
+const AI_API_URL         = process.env.AI_API_URL || "http://localhost:8000";
+const SAMPLE_SMILES      = "CN1C=NC2=C1C(=O)N(C(=O)N2C)C";
+const SAMPLE_OBSERVED_RT = Number(process.env.OBSERVED_RT || 636.2);
+
 // Paths to circuit artifacts
 const CIRCUIT_DIR   = path.join(__dirname, "..", "circuits", "build");
 const WASM_PATH     = path.join(CIRCUIT_DIR, "fingerprint_js", "fingerprint.wasm");
 const ZKEY_PATH     = path.join(CIRCUIT_DIR, "fingerprint_final.zkey");
 
 // ── Helpers ──────────────────────────────────────────────────────
+
+/**
+ * AI pre-screen via the Python service: SMILES + observed RT → 137 RDKit
+ * features → XGBoost RT predictor + anomaly classifier.
+ */
+async function runAiPreScreen(smiles, observedRt) {
+    const post = async (route, body) => {
+        const res = await fetch(`${AI_API_URL}${route}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error(`${route} → HTTP ${res.status}: ${await res.text()}`);
+        return res.json();
+    };
+    const features = await post("/compute-features", { smiles, observed_rt: observedRt });
+    return post("/verify", { ...features, token_id: 0 });
+}
 
 /**
  * Deploy contracts fresh (used for the ephemeral "hardhat" network).
@@ -153,16 +181,25 @@ async function main() {
 
     // ── Step 4: AI Pre-Screen ───────────────────────────────────
     console.log("─── Step 4: AI Pre-Screen ─────────────────────────────");
-    console.log(`  Peaks:     [${SAMPLE_PEAKS.join(", ")}]`);
-    console.log(`  Threshold: ${SAMPLE_THRESHOLD}`);
-    const aiResult = aiPreScreen(SAMPLE_PEAKS, SAMPLE_THRESHOLD);
-    console.log(`  Result:    ${aiResult.genuine ? "✓ GENUINE" : "✗ ANOMALY"}`);
-    console.log(`  Reason:    ${aiResult.details.reason}`);
-    console.log(`  Max delta: ${aiResult.details.maxDelta}\n`);
+    console.log(`  SMILES:       ${SAMPLE_SMILES}`);
+    console.log(`  Observed RT:  ${SAMPLE_OBSERVED_RT} s`);
+    const aiResult = await runAiPreScreen(SAMPLE_SMILES, SAMPLE_OBSERVED_RT);
+    console.log(`  Predicted RT: ${aiResult.predicted_rt.toFixed(1)} s (deviation ${aiResult.pct_deviation.toFixed(2)}%)`);
+    console.log(`  Anomaly prob: ${aiResult.anomaly_prob.toFixed(4)} (threshold ${aiResult.threshold})`);
+    console.log(`  Result:       ${aiResult.genuine ? "✓ GENUINE" : "✗ ANOMALY"}\n`);
 
     if (!aiResult.genuine) {
         console.error("❌ AI pre-screen FAILED. Batch flagged as anomaly.");
         console.error("   ZK proof generation skipped. Pipeline halted.");
+        process.exit(1);
+    }
+
+    // Cheap check of the same constraint the circuit enforces, so an
+    // out-of-tolerance peak profile fails before spending time on snarkjs.
+    const preCheck = circuitPreCheck(SAMPLE_PEAKS, SAMPLE_THRESHOLD);
+    console.log(`  Circuit pre-check: ${preCheck.details.reason}\n`);
+    if (!preCheck.genuine) {
+        console.error("❌ Peak profile violates the circuit tolerance. Pipeline halted.");
         process.exit(1);
     }
 
@@ -233,7 +270,10 @@ async function main() {
     console.log("═══════════════════════════════════════════════════════════");
 }
 
-main().catch((err) => {
-    console.error("Integration failed:", err);
-    process.exitCode = 1;
-});
+// snarkjs leaves its curve worker threads running, so exit explicitly.
+main()
+    .then(() => process.exit(0))
+    .catch((err) => {
+        console.error("Integration failed:", err);
+        process.exit(1);
+    });

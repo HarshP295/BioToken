@@ -23,8 +23,8 @@ src_dir = os.path.join(ai_dir, "src")
 if src_dir not in sys.path:
     sys.path.insert(0, src_dir)
 
-from verifier import verify_reagent
-from peaks_extractor import extract_peaks, peaks_from_intensities
+from src.features import compute_features, features_dict_to_list, smiles_to_mol
+from verifier import get_classifier_info, get_model_info, models_loaded, verify_reagent
 
 app = FastAPI()
 app.add_middleware(
@@ -39,34 +39,17 @@ MAX_PEAK   = 255
 MAX_THRESH = 255
 N_PEAKS    = 10
 
-# ── Population-average molecular features (SMRT dataset means) ──
-# Used when molecule identity is unknown (peaks-only flow).
-# The anomaly classifier relies primarily on pct_deviation (ranked
-# #1 feature by XGBoost importance gap), so average molecular
-# features do not materially affect the genuine/anomaly decision.
-_AVG_PHYS = [
-    2.5,    # logp
-    1.2,    # aromatic_rings
-    310.0,  # mol_weight
-    22.0,   # heavy_atom_count
-    2.1,    # ring_count
-    4.2,    # hba
-    78.0,   # tpsa
-    4.8,    # rotatable_bonds
-    1.8,    # hbd
-]
-_AVG_FP = [0.1] * 128          # population-average Morgan bit occupancy
-_AVG_FEATURES = _AVG_PHYS + _AVG_FP   # 137 total
-
 
 # ── Pydantic models ─────────────────────────────────────────────
 
 class ComputeFeaturesRequest(BaseModel):
-    peaks: list[float]   # exactly 10 HPLC peak intensity values
+    smiles: str          # reagent structure (public identity, not the HPLC fingerprint)
+    observed_rt: float   # retention time measured by the lab's HPLC, in seconds
 
 class ComputeFeaturesResponse(BaseModel):
-    observed_features: list[float]   # 137 features
-    observed_rt: float               # RT estimated from peak centroid
+    observed_features: list[float]   # 137 RDKit features (9 descriptors + 128 Morgan bits)
+    observed_rt: float
+    smiles: str
 
 class VerifyRequest(BaseModel):
     observed_features: list[float]
@@ -165,43 +148,27 @@ def grant_onchain_role(wallet_address: str, role_name: str) -> str:
     return tx_hash.hex()
 
 
-# ── RT estimation from peak profile ────────────────────────────
-
-def peaks_to_observed_rt(peaks: list[float]) -> float:
-    """
-    Estimate observed retention time from 10 HPLC peak intensities.
-    Uses intensity-weighted centroid scaled to SMRT range [200, 1500]s.
-    No molecule identity required — manufacturer trade secret is preserved.
-    """
-    arr = np.array(peaks, dtype=float)
-    total = arr.sum()
-    if total == 0:
-        centroid = 0.5
-    else:
-        indices = np.arange(len(arr))
-        centroid = float(np.sum(arr * indices) / total) / (len(arr) - 1)
-    return 200.0 + centroid * 1300.0
-
-
 # ── Endpoints ───────────────────────────────────────────────────
 
 @app.post("/compute-features", response_model=ComputeFeaturesResponse)
 async def compute_features_endpoint(req: ComputeFeaturesRequest):
     """
-    Convert 10 HPLC peak intensities to 137 features + observed RT.
+    Reagent SMILES + lab-measured RT → 137 RDKit features (paper §3.2).
 
-    Molecular features use population-average values. The classifier
-    is dominated by pct_deviation so this does not affect accuracy.
-    No SMILES or chemical structure is required — privacy preserved.
+    The SMILES identifies which reagent was ordered; the proprietary HPLC
+    peak fingerprint never reaches this endpoint (it stays in the browser
+    as the ZK witness).
     """
-    if len(req.peaks) != 10:
-        raise HTTPException(400, "Exactly 10 HPLC peak values required")
-
-    observed_rt = peaks_to_observed_rt(req.peaks)
+    mol = smiles_to_mol(req.smiles)
+    if mol is None:
+        raise HTTPException(422, "Unable to parse SMILES string")
+    if not np.isfinite(req.observed_rt) or req.observed_rt <= 0:
+        raise HTTPException(422, "observed_rt must be a positive retention time in seconds")
 
     return ComputeFeaturesResponse(
-        observed_features=_AVG_FEATURES,
-        observed_rt=observed_rt,
+        observed_features=features_dict_to_list(compute_features(mol)),
+        observed_rt=req.observed_rt,
+        smiles=req.smiles,
     )
 
 
@@ -213,8 +180,13 @@ async def verify(req: VerifyRequest):
     """
     if len(req.observed_features) != 137:
         raise HTTPException(400, f"Expected 137 features, got {len(req.observed_features)}")
+    if not models_loaded():
+        raise HTTPException(503, "AI models not loaded")
 
-    result = verify_reagent(req.observed_features, req.observed_rt)
+    try:
+        result = verify_reagent(req.observed_features, req.observed_rt)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
     return VerifyResponse(**result)
 
 
@@ -450,4 +422,13 @@ async def update_last_login(wallet: str):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "models_loaded": True}
+    loaded = models_loaded()
+    clf_info = get_classifier_info() or {}
+    rt_info = get_model_info() or {}
+    return {
+        "status": "ok" if loaded else "degraded",
+        "models_loaded": loaded,
+        "rt_predictor_r2": rt_info.get("r2"),
+        "classifier_auc": clf_info.get("auc"),
+        "threshold": clf_info.get("threshold"),
+    }

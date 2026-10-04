@@ -7,9 +7,13 @@ motor>=3.5.0
 pymongo>=4.8.0
 web3>=7.0.0
 numpy>=1.26.0
+pandas>=2.0
 scipy>=1.13.0
 joblib>=1.4.2
-scikit-learn>=1.4.0
-xgboost>=2.0.3
+# Models in ai/models were pickled with scikit-learn 1.8 / XGBoost 3.2
+scikit-learn>=1.8
+xgboost>=3.2
 rdkit>=2023.9.5
-    
+matplotlib>=3.7
+pytest>=7.4
+httpx>=0.26

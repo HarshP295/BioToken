@@ -44,7 +44,7 @@ def generate_proof(peaks: list[int], threshold: int = 10) -> dict:
         If snarkjs or Node.js is not available, or if proof
         generation fails (e.g. witness doesn't satisfy constraints).
     """
-    wasm_path = CIRCUIT_DIR / "fingerprint.wasm"
+    wasm_path = CIRCUIT_DIR / "fingerprint_js" / "fingerprint.wasm"
     zkey_path = CIRCUIT_DIR / "fingerprint_final.zkey"
 
     # Validate circuit artifacts exist
@@ -74,7 +74,7 @@ def generate_proof(peaks: list[int], threshold: int = 10) -> dict:
             json.dump(circuit_input, f)
 
         # ── Generate witness ─────────────────────────────────────
-        generate_witness_js = CIRCUIT_DIR / "generate_witness.js"
+        generate_witness_js = CIRCUIT_DIR / "fingerprint_js" / "generate_witness.js"
         if generate_witness_js.exists():
             # Use the project's witness generator if available
             result = subprocess.run(
