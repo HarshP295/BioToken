@@ -104,15 +104,19 @@ async function send(actor, functionName, args) {
 }
 
 async function expectRevert(label, from, functionName, args, errorName) {
-  try {
-    await publicClient.simulateContract({ address: CONTRACT, abi: ABI, functionName, args, account: from })
-  } catch (err) {
-    const revert = err instanceof BaseError && err.walk(e => e instanceof ContractFunctionRevertedError)
-    const got = revert?.data?.errorName ?? revert?.reason ?? err.shortMessage
-    if (got === errorName) return log(label, { info: `reverts with ${got}` })
-    throw new Error(`${label}: expected ${errorName}, got ${got}`)
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await publicClient.simulateContract({ address: CONTRACT, abi: ABI, functionName, args, account: from })
+    } catch (err) {
+      const revert = err instanceof BaseError && err.walk(e => e instanceof ContractFunctionRevertedError)
+      // No revert data means the RPC itself failed (public endpoints flake); retry.
+      if (!revert && attempt < 4) { await new Promise(r => setTimeout(r, 3000 * attempt)); continue }
+      const got = revert?.data?.errorName ?? revert?.reason ?? err.shortMessage
+      if (got === errorName) return log(label, { info: `reverts with ${got}` })
+      throw new Error(`${label}: expected ${errorName}, got ${got}`)
+    }
+    throw new Error(`${label}: expected a revert, call succeeded`)
   }
-  throw new Error(`${label}: expected a revert, call succeeded`)
 }
 
 const read = (functionName, args) => publicClient.readContract({ address: CONTRACT, abi: ABI, functionName, args })
@@ -144,11 +148,15 @@ async function registerAndApprove(actor, role) {
   const reg = await api('/register-role', { body: {
     wallet_address: actor.owner.address, role, smart_account_address: actor.account.address, issued_at: issuedAt, signature,
   } })
-  if (reg.status !== 202 || !reg.pending) throw new Error(`expected a pending registration, got ${JSON.stringify(reg)}`)
-  const approved = await api(`/admin/approve-role/${actor.owner.address}`, { headers: { 'X-Admin-Token': env.ADMIN_API_TOKEN } })
+  // Auto-approve (the default) grants at once; otherwise an admin approves.
+  let txHash = reg.tx_hash, how = 'auto-approved'
+  if (reg.pending) {
+    txHash = (await api(`/admin/approve-role/${actor.owner.address}`, { headers: { 'X-Admin-Token': env.ADMIN_API_TOKEN } })).tx_hash
+    how = 'admin approval'
+  }
   const roleHash = await read(`${role.toUpperCase()}_ROLE`, [])
   if (!(await read('hasRole', [roleHash, actor.account.address]))) throw new Error(`${role} role not on-chain`)
-  log(`${actor.name}: signed registration → admin approval → ${role.toUpperCase()}_ROLE on smart account`, { tx: approved.tx_hash })
+  log(`${actor.name}: chose "${role}", signed registration → ${how} → ${role.toUpperCase()}_ROLE on smart account`, { tx: txHash })
 }
 
 async function mint(manufacturer, batch) {
@@ -202,7 +210,7 @@ async function prove(tokenId, data, goldPackage, labPeaks) {
 }
 
 async function main() {
-  for (const key of ['VITE_PIMLICO_API_KEY', 'VITE_PIMLICO_POLICY_ID', 'ADMIN_API_TOKEN']) {
+  for (const key of ['VITE_PIMLICO_API_KEY', 'VITE_PIMLICO_POLICY_ID']) {
     if (!env[key]) throw new Error(`${key} is not set`)
   }
   const health = await api('/health', { method: 'GET' })

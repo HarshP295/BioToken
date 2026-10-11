@@ -19,7 +19,7 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['snarkjs'],
     rolldownOptions: {
-      define: { global: 'globalThis' },
+      transform: { define: { global: 'globalThis' } },
     },
   },
 

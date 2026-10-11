@@ -16,13 +16,13 @@ import { ethers } from 'ethers'
 import { useWallets, usePrivy } from '@privy-io/react-auth'
 import { createSmartClient, pickTxWallet } from '../lib/pimlico'
 import { encodeFunctionData } from 'viem'
-import { AMOY_RPC_URL, CONTRACT_ADDRESS, CONTRACT_ABI, TARGET_CHAIN_ID } from '../config'
+import { AI_API_URL, AMOY_RPC_URL, CONTRACT_ADDRESS, CONTRACT_ABI, TARGET_CHAIN_ID } from '../config'
 import { buildCircuitInput, compareToGold, formatProofForContract } from '../lib/fingerprint'
 
 // ─── Circuit artifacts (served from /public) ─────────────────────────────────
 const WASM_URL   = '/fingerprint.wasm'
 const ZKEY_URL   = '/fingerprint_final.zkey'
-const AI_URL     = import.meta.env.VITE_AI_API_URL || 'http://localhost:8000'
+const AI_URL     = AI_API_URL
 
 // ─── Pipeline steps ──────────────────────────────────────────────────────────
 export const LAB_STEPS = {

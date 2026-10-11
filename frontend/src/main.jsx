@@ -4,6 +4,7 @@ window.Buffer = window.Buffer || Buffer;
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
+import ErrorBoundary from './components/ErrorBoundary.jsx'
 import './index.css'
 
 import { PrivyProvider } from '@privy-io/react-auth'
@@ -22,6 +23,7 @@ const wagmiConfig = createConfig({
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
+    <ErrorBoundary>
     <PrivyProvider
       appId={import.meta.env.VITE_PRIVY_APP_ID}
       config={{
@@ -40,5 +42,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         </WagmiProvider>
       </QueryClientProvider>
     </PrivyProvider>
+    </ErrorBoundary>
   </React.StrictMode>,
 )

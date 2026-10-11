@@ -3,9 +3,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { usePrivy, useWallets } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
 import { getSmartAccountAddress, pickTxWallet } from '../lib/pimlico';
-import { CONTRACT_ADDRESS } from '../config';
+import { AI_API_URL, CONTRACT_ADDRESS } from '../config';
 
-const AI_URL = import.meta.env.VITE_AI_API_URL || 'http://localhost:8000';
+const AI_URL = AI_API_URL;
 
 /** Must match registration_message() in ai/api.py. */
 export function registrationMessage(role, wallet, holder, issuedAt) {
