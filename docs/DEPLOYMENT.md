@@ -108,7 +108,7 @@ Both services read the contract address and ABI from the committed `deployments/
 
 ## 6. Production notes
 
-- **Plan size**: measured on Linux with exactly `ai/requirements.txt` (Python 3.13): ready 7 s after start, 273 MB resident after a verdict, 530 MB installed. `render.yaml` uses the *Starter* plan, which stays running. The *Free* plan's 512 MB is enough for a demo, but it spins down after 15 idle minutes, and the next request waits for a cold start. To use it, change `plan: starter` to `plan: free`.
+- **Plan size**: measured on Linux with exactly `ai/requirements.txt` (Python 3.13): ready 7 s after start, 273 MB resident after a verdict, 530 MB installed. `render.yaml` uses the *Free* plan: its 512 MB is enough, but it spins down after 15 idle minutes, and the next request waits for a cold start (up to about a minute). For an always-on API, change `plan: free` to `plan: starter` (paid).
 - **Secrets**: the deployer and oracle keys are as sensitive as the contract itself. For anything beyond a testnet, use separate keys from your development ones, keep them only in Render's environment, and consider a hardware/KMS signer for the oracle.
 - **Open role registration**: with `ROLE_AUTO_APPROVE=true` any signed-in user can become a lab or manufacturer. Switch it to `false` before real users and approve requests through `/admin/approve-role`.
 - **Trusted setup**: the circuit's phase-2 setup has a single contributor. That's fine on Amoy; run a multi-party phase 2 before mainnet ([circuits/SETUP.md](../circuits/SETUP.md)).

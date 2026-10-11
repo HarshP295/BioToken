@@ -16,7 +16,7 @@ services:
   - type: web
     name: biotoken-api
     runtime: python
-    plan: starter            # always on; "free" also fits (≈275 MB) but sleeps after 15 idle minutes
+    plan: free               # 512 MB fits (≈275 MB used); sleeps after 15 idle minutes. "starter" stays always on
     region: singapore
     buildCommand: pip install --upgrade pip && pip install -r ai/requirements.txt
     startCommand: cd ai && uvicorn api:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips="*"
