@@ -1,0 +1,111 @@
+# Render Blueprint for BioToken: https://render.com/docs/blueprint-spec
+#
+#   biotoken-api  FastAPI AI service (ai/api.py): AI verdicts + oracle signatures,
+#                 role registration. Python web service.
+#   biotoken-web  React app (frontend/), built with Vite and served as a static site.
+#
+# The smart contracts are already on Polygon Amoy; their address and ABI come
+# from deployments/amoy.json (written by scripts/deploy.js). Deploying new
+# contracts = run scripts/deploy.js locally, commit deployments/amoy.json, push.
+#
+# Values marked `sync: false` are secrets: Render asks for them when the
+# Blueprint is first applied (Dashboard → New → Blueprint). See docs/DEPLOYMENT.md.
+
+services:
+  # ── AI service ────────────────────────────────────────────────
+  - type: web
+    name: biotoken-api
+    runtime: python
+    plan: starter            # always on; "free" also fits (≈275 MB) but sleeps after 15 idle minutes
+    region: singapore
+    buildCommand: pip install --upgrade pip && pip install -r ai/requirements.txt
+    startCommand: cd ai && uvicorn api:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips="*"
+    healthCheckPath: /health
+    autoDeploy: true
+    buildFilter:
+      paths:
+        - ai/**
+        - deployments/**
+        - render.yaml
+      ignoredPaths:
+        - ai/notebooks/**
+        - ai/tests/**
+        - ai/data/**
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13"
+      # Polygon Amoy RPC used to grant roles and for readiness checks
+      - key: AMOY_RPC_URL
+        value: https://polygon-amoy.drpc.org
+      # Admin key of the BioToken deployment (holds DEFAULT_ADMIN_ROLE); grants roles
+      - key: DEPLOYER_PRIVATE_KEY
+        sync: false
+      # Signs GENUINE verdicts; its address must hold AI_ORACLE_ROLE on the contract
+      - key: AI_ORACLE_PRIVATE_KEY
+        sync: false
+      # MongoDB (e.g. Atlas) connection string for user/role records
+      - key: MONGODB_URI
+        sync: false
+      # X-Admin-Token for /admin/* endpoints (only needed if auto-approve is turned off)
+      - key: ADMIN_API_TOKEN
+        generateValue: true
+      # true: the role a user picks (lab / manufacturer) is granted at once
+      - key: ROLE_AUTO_APPROVE
+        value: "true"
+      # Only the web app may call the API from a browser
+      - key: CORS_ORIGINS
+        fromService:
+          type: web
+          name: biotoken-web
+          property: host
+
+  # ── Web app ───────────────────────────────────────────────────
+  - type: web
+    name: biotoken-web
+    runtime: static
+    buildCommand: cd frontend && npm ci && npm run build
+    staticPublishPath: frontend/dist
+    autoDeploy: true
+    buildFilter:
+      paths:
+        - frontend/**
+        - deployments/**
+        - render.yaml
+      ignoredPaths:
+        - frontend/scripts/**
+    pullRequestPreviewsEnabled: false
+    routes:
+      # Single-page app: every route is served by index.html
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Bare host of the AI service; the app calls https://<host>
+      - key: VITE_AI_API_HOST
+        fromService:
+          type: web
+          name: biotoken-api
+          property: host
+      - key: VITE_AMOY_RPC_URL
+        value: https://polygon-amoy.drpc.org
+      # Privy app id (public, but environment-specific)
+      - key: VITE_PRIVY_APP_ID
+        sync: false
+      # Pimlico bundler/paymaster key and sponsorship policy (shipped to browsers;
+      # restrict the key to the web app's domain in the Pimlico dashboard)
+      - key: VITE_PIMLICO_API_KEY
+        sync: false
+      - key: VITE_PIMLICO_POLICY_ID
+        sync: false

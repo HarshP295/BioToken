@@ -71,6 +71,16 @@ For a layer-by-layer description of the whole system, verification results, the 
 
 `ai/models/` holds the models the paper's numbers come from; `src/features.py` emits features in the column order they were fitted on and `src/verifier.py` refuses to load if that ever drifts. See `AI_VALIDATION_RECONCILIATION.md` for verified results.
 
+## Deployment (Render)
+
+`render.yaml` defines the AI service (`biotoken-api`, Python) and the web app (`biotoken-web`, static site). Create both with Render → New → Blueprint, fill in the secrets, add the web URL to Privy's allowed origins, then check the deployment:
+
+```bash
+npm run smoke -- --api https://biotoken-api.onrender.com --web https://biotoken-web.onrender.com
+```
+
+Step-by-step guide, configuration reference and release process: [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Copy `.env.example` / `frontend/.env.example` for local development.
+
 ## Environment Variables
 
 Repo-root `.env` (contracts, scripts, AI service):
@@ -82,7 +92,7 @@ Repo-root `.env` (contracts, scripts, AI service):
 | `VITE_CONTRACT_ADDRESS` | Deployed BioToken (set by `scripts/deploy.js`) |
 | `AI_ORACLE_PRIVATE_KEY` | Signs GENUINE AI verdicts; its address holds `AI_ORACLE_ROLE` |
 | `ADMIN_API_TOKEN`       | `X-Admin-Token` for `/admin/*` role approval endpoints |
-| `ROLE_AUTO_APPROVE`     | Optional; `true` grants roles without admin approval (demo only) |
+| `ROLE_AUTO_APPROVE`     | Default on: the role a user picks (lab or manufacturer) is granted at once. `false` requires admin approval |
 | `MONGODB_URI`           | User/role records |
 | `PINATA_API_KEY`, `PINATA_SECRET_KEY` | Pinata IPFS keys |
 

@@ -62,7 +62,7 @@ async function main() {
             address,
             txHash: deployTx.hash,
             blockNumber: (await deployTx.wait()).blockNumber,
-            abi: JSON.parse(bioToken.interface.formatJson()),
+            abi: (await hre.artifacts.readArtifact("BioToken")).abi,
         },
         circuit: {
             "fingerprint.wasm": sha256("circuits/build/fingerprint_js/fingerprint.wasm"),

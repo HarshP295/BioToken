@@ -16,7 +16,7 @@ from web3 import Web3
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 MONGO_URI = os.environ.get("MONGODB_URI", "mongodb://localhost:27017")
-mongo_client = AsyncIOMotorClient(MONGO_URI)
+mongo_client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=10_000)
 db = mongo_client["biotoken"]
 users_collection = db["users"]
 
@@ -30,10 +30,24 @@ if src_dir not in sys.path:
 from src.features import compute_features, features_dict_to_list, smiles_to_mol
 from verifier import get_classifier_info, get_model_info, models_loaded, verify_reagent
 
-app = FastAPI()
+app = FastAPI(title="BioToken AI service")
+
+
+def _cors_origins() -> list[str]:
+    """CORS_ORIGINS: comma-separated origins; bare hosts (as Render provides) get https://."""
+    origins = []
+    for item in os.environ.get("CORS_ORIGINS", "*").split(","):
+        item = item.strip().rstrip("/")
+        if item and item != "*" and not re.match(r"^https?://", item):
+            item = f"https://{item}"
+        if item:
+            origins.append(item)
+    return origins or ["*"]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",")],
+    allow_origins=_cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -44,7 +58,24 @@ N_PEAKS    = 10
 _NUMBER    = re.compile(r'[-+]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][-+]?[0-9]+)?')
 
 AMOY_CHAIN_ID = 80002
-DEFAULT_CONTRACT = os.environ.get("VITE_CONTRACT_ADDRESS", "")
+# Committed by scripts/deploy.js: BioToken address + ABI. Used when the env
+# does not name a contract, and always for the ABI (Hardhat's artifacts/
+# folder is git-ignored, so it does not exist on a fresh server).
+DEPLOYMENT_FILE = os.path.join(os.path.dirname(__file__), "..", "deployments", "amoy.json")
+
+
+def _deployment() -> dict:
+    try:
+        with open(DEPLOYMENT_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def contract_address() -> str:
+    """BioToken address: CONTRACT_ADDRESS or VITE_CONTRACT_ADDRESS env, else deployments/amoy.json."""
+    return (os.environ.get("CONTRACT_ADDRESS") or os.environ.get("VITE_CONTRACT_ADDRESS")
+            or _deployment().get("BioToken", {}).get("address", ""))
 # Signatures from this key are what BioToken accepts as AI verdicts
 # (the address must hold AI_ORACLE_ROLE). Without it /verify still answers,
 # but issues no attestation.
@@ -140,11 +171,12 @@ def sign_ai_verdict(chain_id: int, contract: str, token_id: int, smiles: str) ->
 
 def current_contract() -> str:
     """Lower-case BioToken address role grants are recorded against."""
-    return (os.environ.get("VITE_CONTRACT_ADDRESS") or "").lower()
+    return contract_address().lower()
 
 
 def auto_approve_roles() -> bool:
-    return os.environ.get("ROLE_AUTO_APPROVE", "").lower() == "true"
+    """On unless ROLE_AUTO_APPROVE=false (then an admin must approve each request)."""
+    return os.environ.get("ROLE_AUTO_APPROVE", "true").strip().lower() != "false"
 
 
 def require_admin(token: str | None) -> None:
@@ -155,27 +187,31 @@ def require_admin(token: str | None) -> None:
         raise HTTPException(401, "Invalid admin token")
 
 
+# The two AccessControl calls the API makes (OpenZeppelin AccessControl).
+ACCESS_CONTROL_ABI = [
+    {"type": "function", "name": "hasRole", "stateMutability": "view",
+     "inputs": [{"name": "role", "type": "bytes32"}, {"name": "account", "type": "address"}],
+     "outputs": [{"name": "", "type": "bool"}]},
+    {"type": "function", "name": "grantRole", "stateMutability": "nonpayable",
+     "inputs": [{"name": "role", "type": "bytes32"}, {"name": "account", "type": "address"}],
+     "outputs": []},
+]
+
+
 def grant_onchain_role(wallet_address: str, role_name: str) -> str:
     role = role_name.lower().strip()
     if role not in ROLE_NAMES:
         raise ValueError("Role must be 'manufacturer' or 'lab'")
 
     rpc_url = os.environ.get("AMOY_RPC_URL")
-    contract_address = os.environ.get("VITE_CONTRACT_ADDRESS")
+    address = contract_address()
     admin_key = os.environ.get("DEPLOYER_PRIVATE_KEY")
     if not rpc_url:
         raise RuntimeError("AMOY_RPC_URL not configured")
-    if not contract_address:
-        raise RuntimeError("VITE_CONTRACT_ADDRESS not configured")
+    if not address:
+        raise RuntimeError("Contract address not configured (CONTRACT_ADDRESS or deployments/amoy.json)")
     if not admin_key:
         raise RuntimeError("DEPLOYER_PRIVATE_KEY not configured")
-
-    artifact_path = os.path.join(
-        os.path.dirname(__file__), "..",
-        "artifacts", "contracts", "BioToken.sol", "BioToken.json",
-    )
-    with open(artifact_path) as artifact_file:
-        artifact = json.load(artifact_file)
 
     w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 20}))
     if w3.eth.chain_id != AMOY_CHAIN_ID:
@@ -183,8 +219,8 @@ def grant_onchain_role(wallet_address: str, role_name: str) -> str:
 
     admin_account = w3.eth.account.from_key(admin_key)
     contract = w3.eth.contract(
-        address=Web3.to_checksum_address(contract_address),
-        abi=artifact["abi"],
+        address=Web3.to_checksum_address(address),
+        abi=ACCESS_CONTROL_ABI,
     )
     recipient = Web3.to_checksum_address(wallet_address)
     role_hash = Web3.keccak(text=f"{role.upper()}_ROLE")
@@ -259,7 +295,7 @@ async def verify(req: VerifyRequest):
         raise HTTPException(422, str(e)) from e
 
     if result["genuine"] and req.smiles is not None and AI_ORACLE_KEY:
-        contract = req.contract_address or DEFAULT_CONTRACT
+        contract = req.contract_address or contract_address()
         if not Web3.is_address(contract or ""):
             raise HTTPException(422, "contract_address is required to sign the verdict")
         result["attestation"], result["oracle"] = sign_ai_verdict(
@@ -317,8 +353,8 @@ async def extract_peaks_endpoint(file: UploadFile = File(...)):
 #
 # 1. The user's wallet signs registration_message(...) (proves it owns the
 #    wallet; the role holder is the smart account it transacts from).
-# 2. With ROLE_AUTO_APPROVE=true the role is granted at once (demo mode).
-#    Otherwise the request waits until an admin calls
+# 2. By default the chosen role (lab or manufacturer) is granted at once.
+#    With ROLE_AUTO_APPROVE=false the request waits until an admin calls
 #    POST /admin/approve-role/{wallet} with the X-Admin-Token header.
 
 async def _grant_and_record(wallet: str, role: str, holder: str) -> str:
@@ -514,5 +550,54 @@ async def health():
         "classifier_auc": clf_info.get("auc"),
         "threshold": clf_info.get("threshold"),
         "ai_oracle": Account.from_key(AI_ORACLE_KEY).address if AI_ORACLE_KEY else None,
-        "contract": DEFAULT_CONTRACT or None,
+        "contract": contract_address() or None,
     }
+
+
+@app.get("/health/ready")
+async def readiness():
+    """
+    Production readiness: configuration, chain, roles and MongoDB.
+    Slower than /health (network calls), so not used as the platform health check.
+    """
+    checks: dict[str, dict] = {}
+
+    def record(name: str, ok: bool, detail: str = "") -> None:
+        checks[name] = {"ok": bool(ok), "detail": detail}
+
+    record("models", models_loaded())
+    address = contract_address()
+    record("contract_configured", Web3.is_address(address or ""), address or "missing")
+    record("ai_oracle_key", bool(AI_ORACLE_KEY), Account.from_key(AI_ORACLE_KEY).address if AI_ORACLE_KEY else "missing")
+    admin_key = os.environ.get("DEPLOYER_PRIVATE_KEY")
+    record("admin_key", bool(admin_key), "set" if admin_key else "missing (needed to grant roles)")
+    record("role_approval", True, "auto-approve" if auto_approve_roles() else "admin approval")
+
+    rpc_url = os.environ.get("AMOY_RPC_URL")
+    if rpc_url and Web3.is_address(address or ""):
+        try:
+            w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 15}))
+            record("chain", w3.eth.chain_id == AMOY_CHAIN_ID, f"chain id {w3.eth.chain_id}")
+            code = w3.eth.get_code(Web3.to_checksum_address(address))
+            record("contract_deployed", len(code) > 0, f"{len(code)} bytes")
+            contract = w3.eth.contract(address=Web3.to_checksum_address(address), abi=ACCESS_CONTROL_ABI)
+            if AI_ORACLE_KEY:
+                oracle = Account.from_key(AI_ORACLE_KEY).address
+                record("oracle_has_role", contract.functions.hasRole(Web3.keccak(text="AI_ORACLE_ROLE"), oracle).call(), oracle)
+            if admin_key:
+                admin = Account.from_key(admin_key).address
+                record("admin_has_role", contract.functions.hasRole(b"\x00" * 32, admin).call(), admin)
+                record("admin_balance", w3.eth.get_balance(admin) > 0, f"{w3.from_wei(w3.eth.get_balance(admin), 'ether')} POL")
+        except Exception as error:
+            record("chain", False, f"{type(error).__name__}: {error}")
+    else:
+        record("chain", False, "AMOY_RPC_URL missing" if not rpc_url else "no contract address")
+
+    try:
+        await mongo_client.admin.command("ping")
+        record("mongodb", True)
+    except Exception as error:
+        record("mongodb", False, f"{type(error).__name__}: {error}")
+
+    ready = all(c["ok"] for c in checks.values())
+    return JSONResponse(status_code=200 if ready else 503, content={"ready": ready, "checks": checks})

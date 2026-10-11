@@ -180,7 +180,7 @@ def role_env(monkeypatch):
     monkeypatch.setattr(api, "grant_onchain_role", lambda addr, role: grants.append((addr.lower(), role)) or "0xabc")
     monkeypatch.setenv("VITE_CONTRACT_ADDRESS", CONTRACT)
     monkeypatch.setenv("ADMIN_API_TOKEN", "secret")
-    monkeypatch.delenv("ROLE_AUTO_APPROVE", raising=False)
+    monkeypatch.setenv("ROLE_AUTO_APPROVE", "false")   # approval-flow tests; default is auto
     return users, grants
 
 
@@ -210,11 +210,13 @@ def test_registration_waits_for_admin_approval_then_grants_to_smart_account(role
     assert users.docs[EOA]["labRoleGranted"] is True
 
 
-def test_auto_approve_mode_grants_immediately(role_env, monkeypatch):
+@pytest.mark.parametrize("role", ["lab", "manufacturer"])
+def test_auto_approve_is_the_default_and_grants_the_chosen_role(role_env, monkeypatch, role):
     _, grants = role_env
-    monkeypatch.setenv("ROLE_AUTO_APPROVE", "true")
-    assert client.post("/register-role", json=_registration("manufacturer")).status_code == 200
-    assert grants == [(SMART.lower(), "manufacturer")]
+    monkeypatch.delenv("ROLE_AUTO_APPROVE")
+    response = client.post("/register-role", json=_registration(role))
+    assert response.status_code == 200 and response.json()["role"] == role
+    assert grants == [(SMART.lower(), role)]
 
 
 def test_registration_signed_by_another_wallet_is_rejected(role_env):

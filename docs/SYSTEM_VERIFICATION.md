@@ -24,11 +24,12 @@ Last verified on 2026-10-11, after the security redesign described in [section 9
 | Smart contracts | Redesigned and redeployed. Lifecycle calls are holder-only, plain transfers are blocked, `verifyDemo` is gone, and the contract supplies every ZK public input itself. 26 Hardhat tests pass | `npx hardhat test` |
 | ZK circuit | Rewritten from circomlib parts. It now proves "the lab's scan matches the Gold Standard committed at mint, within the tolerance fixed at mint, for this token". New phase-2 setup on the PSE Perpetual Powers of Tau. A tampered scan has no proof; replay and loosened-tolerance proofs are rejected | Hardhat I-1…I-9, `check_samples.mjs`, [circuits/SETUP.md](../circuits/SETUP.md) |
 | AI pipeline | Models unchanged; paper metrics reproduce exactly. A GENUINE verdict is now signed by an AI oracle key, and BioToken requires that signature | 48 Python tests, `reproduce_paper_metrics.py` |
-| Roles / API | Role requests must be signed by the wallet and approved by an admin (or auto-approved in demo mode). Roles go to the smart account that actually sends the transactions | Python tests, Amoy run |
+| Roles / API | Users choose Lab or Manufacturer; the request is signed by the wallet and, for now, auto-approved (admin approval is available with `ROLE_AUTO_APPROVE=false`). Roles go to the smart account that actually sends the transactions | Python tests, Amoy run |
 | Consensus layer | Unchanged: a browser-side check against two hard-coded supplier fingerprints. Not enforced on-chain | code review |
 | Full integration, local | **Works**: mint → ship → receive → signed AI verdict → ZK proof → on-chain verify → consume. Tampered and RT-shifted scans stop at the right step | `npx hardhat run scripts/integrate.js` |
 | Full integration, Polygon Amoy (gasless) | **Works**: the same flow through Pimlico smart accounts and sponsored UserOperations, the browser's parser, fingerprint and circuit files, and the live AI service | `node frontend/scripts/e2e_amoy.mjs`, [evidence](evidence/amoy-e2e-2026-10-11T05-49-49-840Z.json) |
 | Web app | Builds; renders against the new contract (landing, token details for the Amoy tokens). Flows behind a Privy login were exercised through the end-to-end script rather than by a person in a browser | `vite build`, headless browser |
+| Deployment (Render) | `render.yaml` Blueprint for the AI service and the web app; both build from committed files only (no `artifacts/`, no `.env`). The production build, served statically, passes all 9 post-deploy smoke checks against the local API | [docs/DEPLOYMENT.md](DEPLOYMENT.md), `npm run smoke` |
 
 **Deployment (Polygon Amoy, 2026-10-11)**
 
@@ -181,7 +182,7 @@ The oracle signs only when `/verify` is given the SMILES (it then computes the f
 | `POST /verify` | `{smiles, observed_rt, token_id, chain_id, contract_address}` → verdict, plus `attestation` (oracle signature) when GENUINE |
 | `POST /compute-features` | SMILES → 137 features (display/diagnostics) |
 | `POST /extract-peaks` | Chromatogram CSV → 10 peaks, same rules as the browser parser (for scripts) |
-| `POST /register-role` | `{wallet_address, role, smart_account_address, issued_at, signature}`; signature by the wallet over the registration message; returns 202 pending unless `ROLE_AUTO_APPROVE=true` |
+| `POST /register-role` | `{wallet_address, role, smart_account_address, issued_at, signature}`; signature by the wallet over the registration message; grants the chosen role at once (default); with `ROLE_AUTO_APPROVE=false` returns 202 pending until an admin approves |
 | `GET /admin/role-requests` | Pending registrations (`X-Admin-Token`) |
 | `POST /admin/approve-role/{wallet}` | Approves and grants the role to the registered smart account (`X-Admin-Token`) |
 | `POST /api/retry-role-grant/{wallet}` | Retries a failed grant for an approved user |
@@ -189,7 +190,7 @@ The oracle signs only when `/verify` is given the SMILES (it then computes the f
 
 Removed: `/generate-proof` and `ai/src/prover.py`. Server-side proving would require uploading the secret Gold Standard.
 
-Server configuration (repo-root `.env`): `AI_ORACLE_PRIVATE_KEY`, `ADMIN_API_TOKEN`, `VITE_CONTRACT_ADDRESS`, `AMOY_RPC_URL`, `DEPLOYER_PRIVATE_KEY` (admin key used for grants), `MONGODB_URI`; optional `ROLE_AUTO_APPROVE=true` (demo mode) and `CORS_ORIGINS`.
+Server configuration (repo-root `.env`): `AI_ORACLE_PRIVATE_KEY`, `ADMIN_API_TOKEN`, `VITE_CONTRACT_ADDRESS`, `AMOY_RPC_URL`, `DEPLOYER_PRIVATE_KEY` (admin key used for grants), `MONGODB_URI`; optional `ROLE_AUTO_APPROVE` (default on; `false` requires admin approval) and `CORS_ORIGINS`.
 
 ### 4.6 Frontend
 
@@ -201,8 +202,8 @@ Privy handles login and creates an embedded wallet. Every write goes through a S
 
 | # | Who | Where | What happens | Leaves the browser |
 |---|---|---|---|---|
-| 1 | Any user | Role selection | Picks a role; the wallet signs the registration message; the API stores it as pending | wallet, smart-account address, signature |
-| 2 | Admin | API | `POST /admin/approve-role/{wallet}` → `grantRole` to the smart account | – |
+| 1 | Any user | Role selection | Chooses **Lab** or **Manufacturer**; the wallet signs the registration message; the API grants that role to the user's smart account (auto-approve) | wallet, smart-account address, signature |
+| 2 | Admin (only if `ROLE_AUTO_APPROVE=false`) | API | `POST /admin/approve-role/{wallet}` → `grantRole` to the smart account | – |
 | 3 | Manufacturer | Mint page | Uploads the Gold Standard file ([6.1](#61-manufacturer-mint-page)), enters batch ID, reagent SMILES, tolerance (default 10), expiry | none |
 | 4 | Manufacturer | Mint page | Consensus check; random salt; `commitment = Poseidon(peaks, salt)`; `mintToken` as a sponsored UserOperation | batch ID, SMILES, commitment, tolerance |
 | 5 | Manufacturer | Mint page | Downloads the **Gold Standard package** and sends it to the lab with the shipment (off-chain, privately) | – (manual hand-over) |
@@ -339,7 +340,7 @@ Notes:
 | Lab tries to consume the unverified batch | reverts `InvalidStatusTransition` | – |
 | Token #1 stays RECEIVED | ✓ | – |
 
-The two MongoDB user records created by the run were deleted afterwards.
+The two MongoDB user records created by the run were deleted afterwards. The run was repeated on 2026-10-11 with auto-approve on (both roles chosen and granted without an admin; tokens #4 VERIFIED → CONSUMED and #5 tampered, stuck at RECEIVED; every rejection as above): [record](evidence/amoy-e2e-2026-10-11T13-33-27-188Z.json).
 
 ---
 
@@ -354,7 +355,7 @@ python -m venv .venv && .venv/Scripts/pip install -r requirements.txt   # .venv/
 curl -L "https://ndownloader.figshare.com/files/18130628" -o ai/data/SMRT_dataset.csv   # reproduction scripts only
 ```
 
-Repo-root `.env`: `DEPLOYER_PRIVATE_KEY`, `AMOY_RPC_URL`, `MONGODB_URI`, `VITE_CONTRACT_ADDRESS`, `AI_ORACLE_PRIVATE_KEY`, `ADMIN_API_TOKEN` (optional `ROLE_AUTO_APPROVE=true`).
+Repo-root `.env`: `DEPLOYER_PRIVATE_KEY`, `AMOY_RPC_URL`, `MONGODB_URI`, `VITE_CONTRACT_ADDRESS`, `AI_ORACLE_PRIVATE_KEY`, `ADMIN_API_TOKEN`, `ROLE_AUTO_APPROVE` (default on).
 `frontend/.env`: `VITE_PRIVY_APP_ID`, `VITE_PIMLICO_API_KEY`, `VITE_PIMLICO_POLICY_ID`, `VITE_CONTRACT_ADDRESS`, `VITE_AI_API_URL`, `VITE_AMOY_RPC_URL`.
 
 ### 8.2 Contracts and circuit
@@ -433,7 +434,7 @@ The first verification pass found the issues below. All were fixed and redeploye
 | C4 | One proof verified every token | **Fixed** | Token id is a public signal supplied by the contract (I-3; replay on Amoy reverts) |
 | H1 | `verifyDemo` let anyone mark a token VERIFIED | **Fixed** | Removed |
 | H2 | Anyone could ship, receive or consume any token | **Fixed** | Holder-only lifecycle, recipient must hold `LAB_ROLE`, plain transfers blocked |
-| H3 | `/register-role` granted roles to anyone who asked | **Fixed** | Wallet signature + admin approval (or explicit `ROLE_AUTO_APPROVE` demo mode) |
+| H3 | `/register-role` granted roles to anyone who asked | **Fixed** | Wallet signature; roles go only to the signer's smart account. Auto-approve is on for now, so anyone can still pick a role; set `ROLE_AUTO_APPROVE=false` to require admin approval |
 | H4 | The AI verdict was advisory | **Fixed** | Oracle-signed verdict bound to chain, contract, token and reagent; checked in `verifyProof` |
 | I1 | Roles went to the Privy EOA but transactions came from the smart account | **Fixed** | Roles granted to the smart account; grants recorded per contract |
 | M1 | The lab chromatogram was uploaded to the server | **Fixed** | Parsed in the browser |
@@ -459,5 +460,6 @@ Removed files: `frontend/src/zkp/` (fake verification), `scripts/aiCheck.js` (ol
 5. **Consensus is still a UI check** against two hard-coded peers, and `marketplaceSig` is empty.
 6. **AI limits** as in section 4.3 and the reconciliation document.
 7. **Web app sessions.** The live run used the app's libraries and code path, but not a person clicking through Privy login, its signing prompt and the two dashboards. Do one manual session with the section 6 files.
-8. **Migration.** Users registered on the old contract must re-register (their old grant is on the old contract; the retry button re-signs) and be approved. Tokens on the old contract stay there. A hosted frontend must be rebuilt with the new `VITE_CONTRACT_ADDRESS`, and the hosted AI service needs `AI_ORACLE_PRIVATE_KEY` and `ADMIN_API_TOKEN`.
-9. **Lint debt.** Some pages carry pre-existing unused-variable and React-purity lint errors; none were introduced here.
+8. **Migration.** Users registered on the old contract must re-register (their old grant is on the old contract; the retry button re-signs) (auto-approved while `ROLE_AUTO_APPROVE` is on). Tokens on the old contract stay there. A hosted frontend must be rebuilt with the new `VITE_CONTRACT_ADDRESS`, and the hosted AI service needs `AI_ORACLE_PRIVATE_KEY` and `ADMIN_API_TOKEN`.
+9. **Open role registration.** Auto-approve is on by choice for now, so any signed-in user can take the Lab or Manufacturer role. Set `ROLE_AUTO_APPROVE=false` (and use `/admin/approve-role`) before real users.
+10. **Lint debt.** Some pages carry pre-existing unused-variable and React-purity lint errors; none were introduced here.
