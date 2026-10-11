@@ -52,12 +52,10 @@ services:
       # true: the role a user picks (lab / manufacturer) is granted at once
       - key: ROLE_AUTO_APPROVE
         value: "true"
-      # Only the web app may call the API from a browser
+      # Only the web app may call the API from a browser. A public URL, not
+      # `fromService … property: host`, which yields the internal service name.
       - key: CORS_ORIGINS
-        fromService:
-          type: web
-          name: biotoken-web
-          property: host
+        value: https://biotoken-web.onrender.com
 
   # ── Web app ───────────────────────────────────────────────────
   - type: web
@@ -92,12 +90,10 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "22"
-      # Bare host of the AI service; the app calls https://<host>
-      - key: VITE_AI_API_HOST
-        fromService:
-          type: web
-          name: biotoken-api
-          property: host
+      # Public URL of the AI service (the browser calls it, so not the
+      # internal host that `fromService … property: host` would give)
+      - key: VITE_AI_API_URL
+        value: https://biotoken-api.onrender.com
       - key: VITE_AMOY_RPC_URL
         value: https://polygon-amoy.drpc.org
       # Privy app id (public, but environment-specific)

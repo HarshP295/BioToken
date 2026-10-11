@@ -37,7 +37,7 @@ Both services read the contract address and ABI from the committed `deployments/
    | biotoken-web | `VITE_PIMLICO_API_KEY` | Pimlico API key |
    | biotoken-web | `VITE_PIMLICO_POLICY_ID` | Pimlico sponsorship policy id |
 
-   Set automatically: `ADMIN_API_TOKEN` (random), `ROLE_AUTO_APPROVE=true`, `AMOY_RPC_URL`, `PYTHON_VERSION`, `NODE_VERSION`. The two services are wired to each other: the web app's `VITE_AI_API_HOST` is the API's host, and the API's `CORS_ORIGINS` is the web app's host.
+   Set automatically: `ADMIN_API_TOKEN` (random), `ROLE_AUTO_APPROVE=true`, `AMOY_RPC_URL`, `PYTHON_VERSION`, `NODE_VERSION`. The two services point at each other's public URLs: the web app's `VITE_AI_API_URL` is `https://biotoken-api.onrender.com`, and the API's `CORS_ORIGINS` is `https://biotoken-web.onrender.com`. (Render's `fromService … property: host` is not used: it gives the internal service name, which browsers cannot reach.) If Render gives a service a different URL, or you add a custom domain, change these two values.
 3. **Apply**. The first API build takes several minutes (RDKit, XGBoost, scikit-learn wheels); the web build about two minutes.
 
 ## 3. After the first deploy
@@ -82,7 +82,7 @@ Both services read the contract address and ABI from the committed `deployments/
 |---|---|---|
 | `VITE_PRIVY_APP_ID` | yes | |
 | `VITE_PIMLICO_API_KEY`, `VITE_PIMLICO_POLICY_ID` | yes | |
-| `VITE_AI_API_HOST` | yes | Wired from the API service; or set `VITE_AI_API_URL` to a full URL (e.g. a custom domain) |
+| `VITE_AI_API_URL` | yes | Public URL of the API service (e.g. `https://biotoken-api.onrender.com` or a custom domain); `VITE_AI_API_HOST` (bare host) also works |
 | `VITE_AMOY_RPC_URL` | no | Read-only chain calls from the browser |
 | `VITE_CONTRACT_ADDRESS` | no | Overrides `deployments/amoy.json` |
 | `NODE_VERSION` | – | `22` (Vite 8 needs ≥ 20.19) |
