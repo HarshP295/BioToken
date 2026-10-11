@@ -34,6 +34,7 @@ export default function App() {
     selectRole,
     pendingRole,
     rolePendingOnChain,
+    awaitingApproval,
     retryRoleGrant,
   } = useRole();
 
@@ -113,10 +114,12 @@ export default function App() {
             }}>
               <Loader2 size={36} color="#00C896" style={{ animation: 'spin 1s linear infinite' }} />
               <h1 style={{ fontFamily: "'Libre Baskerville', serif", color: '#0d1f1a' }}>
-                Role registration pending on-chain confirmation
+                {awaitingApproval ? 'Role registration awaiting approval' : 'Role registration pending on-chain confirmation'}
               </h1>
               <p style={{ color: '#6B7280', maxWidth: 520 }}>
-                Your {pendingRole} account is registered, but its smart-contract role is not active yet.
+                {awaitingApproval
+                  ? `Your ${pendingRole} registration was received. An administrator must approve it before the role is granted on-chain; check again afterwards.`
+                  : `Your ${pendingRole} account is registered, but its smart-contract role is not active on the current contract yet.`}
               </p>
               <button
                 type="button"
@@ -125,7 +128,7 @@ export default function App() {
                 className="btn btn-primary"
               >
                 <RefreshCw size={16} />
-                {isRegistering ? 'Retrying role grant…' : 'Retry role grant'}
+                {isRegistering ? 'Checking…' : awaitingApproval ? 'Check again' : 'Retry role grant'}
               </button>
               {registerError && (
                 <div className="alert-banner alert-banner--error">{registerError}</div>

@@ -7,7 +7,8 @@ artifacts
 typechain-types
 coverage
 coverage.json
-deployments
+deployments/*
+!deployments/amoy.json
 AI_VALIDATION_RECONCILIATION
 
 

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useGaslessContract } from '../hooks/useGaslessContract';
 import { getBaselinePeers, getPeerMeans } from '../lib/consensusValidator';
+import { DEFAULT_TOLERANCE } from '../lib/fingerprint';
 import DNABackground from '../components/DNABackground';
 
 /* ── card wrapper ─────────────────────────────────────────────── */
@@ -250,7 +251,7 @@ function UploadCard({ file, onFile, animDelay }) {
               fontFamily: "'Libre Baskerville', serif",
               fontWeight: 700, fontSize: '1rem',
               color: '#0d1f1a', marginBottom: '0.4rem',
-            }}>Drop HPLC fingerprint here</div>
+            }}>Drop the Gold Standard HPLC file here</div>
             <div style={{
               fontFamily: "'Playfair Display', serif",
               fontSize: '0.85rem', color: '#6B7280',
@@ -273,7 +274,7 @@ function UploadCard({ file, onFile, animDelay }) {
 }
 
 /* ── Card 3: NFT Preview ─────────────────────────────────────── */
-function NFTPreviewCard({ batchId, expiryDays, animDelay }) {
+function NFTPreviewCard({ batchId, expiryDays, tolerance, animDelay }) {
   const expiry = new Date(Date.now() + expiryDays * 86400000).toLocaleDateString('en-US', {
     year: 'numeric', month: 'short', day: 'numeric',
   });
@@ -282,7 +283,7 @@ function NFTPreviewCard({ batchId, expiryDays, animDelay }) {
     { label: 'Batch ID',  value: batchId || '—',       icon: <Hash size={14} /> },
     { label: 'Status',    value: 'MINTED',              icon: <PackageCheck size={14} /> },
     { label: 'Expires',   value: expiryDays ? expiry : '—', icon: <Clock size={14} /> },
-    { label: 'Network',   value: 'Polygon Amoy',        icon: <Server size={14} /> },
+    { label: 'Tolerance', value: `±${tolerance}`,       icon: <Server size={14} /> },
   ];
 
   return (
@@ -323,88 +324,107 @@ function NFTPreviewCard({ batchId, expiryDays, animDelay }) {
 }
 
 /* ── form inputs ─────────────────────────────────────────────── */
-function FormCard({ formData, setFormData, animDelay }) {
+function Field({ label, hint, ...inputProps }) {
   return (
-    <SectionCard animDelay={animDelay}>
-      <CardHeading>Batch Details</CardHeading>
-      <div style={{ marginBottom: '1.5rem' }}>
-        <label style={{
-          display: 'block',
+    <div style={{ marginBottom: '1.25rem' }}>
+      <label style={{
+        display: 'block',
+        fontFamily: "'Courier New', monospace",
+        fontSize: '0.7rem', fontWeight: 700,
+        letterSpacing: '0.1em', textTransform: 'uppercase',
+        color: '#6B7280',
+        marginBottom: '0.5rem',
+      }}>{label}</label>
+      <input
+        required
+        {...inputProps}
+        style={{
+          width: '100%',
+          padding: '0.85rem 1rem',
+          background: '#f7fbf9',
+          border: '1.5px solid #e0ede9',
+          borderRadius: '10px',
+          color: '#0d1f1a',
           fontFamily: "'Courier New', monospace",
-          fontSize: '0.7rem', fontWeight: 700,
-          letterSpacing: '0.1em', textTransform: 'uppercase',
-          color: '#6B7280',
-          marginBottom: '0.5rem',
-        }}>Batch Identifier</label>
-        <input
-          type="text"
-          value={formData.batchId}
-          onChange={e => setFormData(d => ({ ...d, batchId: e.target.value }))}
-          required
-          style={{
-            width: '100%',
-            padding: '0.85rem 1rem',
-            background: '#f7fbf9',
-            border: '1.5px solid #e0ede9',
-            borderRadius: '10px',
-            color: '#0d1f1a',
-            fontFamily: "'Courier New', monospace",
-            fontSize: '0.92rem',
-            outline: 'none',
-            transition: 'border-color 0.2s, box-shadow 0.2s',
-          }}
-          onFocus={e => {
-            e.target.style.borderColor = '#00C896';
-            e.target.style.boxShadow   = '0 0 0 3px rgba(0,200,150,0.12)';
-          }}
-          onBlur={e => {
-            e.target.style.borderColor = '#e0ede9';
-            e.target.style.boxShadow   = 'none';
-          }}
-        />
+          fontSize: '0.92rem',
+          outline: 'none',
+          transition: 'border-color 0.2s, box-shadow 0.2s',
+        }}
+        onFocus={e => {
+          e.target.style.borderColor = '#00C896';
+          e.target.style.boxShadow   = '0 0 0 3px rgba(0,200,150,0.12)';
+        }}
+        onBlur={e => {
+          e.target.style.borderColor = '#e0ede9';
+          e.target.style.boxShadow   = 'none';
+        }}
+      />
+      {hint && (
         <p style={{
           fontFamily: "'Playfair Display', serif",
           fontSize: '0.78rem', color: '#9CA3AF',
           marginTop: '0.35rem',
-        }}>A unique human-readable ID for physical labeling.</p>
-      </div>
+        }}>{hint}</p>
+      )}
+    </div>
+  );
+}
 
-      <div>
-        <label style={{
-          display: 'block',
-          fontFamily: "'Courier New', monospace",
-          fontSize: '0.7rem', fontWeight: 700,
-          letterSpacing: '0.1em', textTransform: 'uppercase',
-          color: '#6B7280',
-          marginBottom: '0.5rem',
-        }}>Days Until Expiry</label>
-        <input
-          type="number"
-          value={formData.expiryDays}
-          onChange={e => setFormData(d => ({ ...d, expiryDays: parseInt(e.target.value) || 0 }))}
-          min="1"
-          required
-          style={{
-            width: '100%',
-            padding: '0.85rem 1rem',
-            background: '#f7fbf9',
-            border: '1.5px solid #e0ede9',
-            borderRadius: '10px',
-            color: '#0d1f1a',
-            fontFamily: "'Courier New', monospace",
-            fontSize: '0.92rem',
-            outline: 'none',
-            transition: 'border-color 0.2s, box-shadow 0.2s',
-          }}
-          onFocus={e => {
-            e.target.style.borderColor = '#00C896';
-            e.target.style.boxShadow   = '0 0 0 3px rgba(0,200,150,0.12)';
-          }}
-          onBlur={e => {
-            e.target.style.borderColor = '#e0ede9';
-            e.target.style.boxShadow   = 'none';
-          }}
-        />
+function FormCard({ formData, setFormData, animDelay }) {
+  const set = (key, parse = v => v) => e => setFormData(d => ({ ...d, [key]: parse(e.target.value) }));
+  return (
+    <SectionCard animDelay={animDelay}>
+      <CardHeading>Batch Details</CardHeading>
+      <Field
+        label="Batch Identifier" type="text"
+        value={formData.batchId} onChange={set('batchId')}
+        hint="A unique human-readable ID for physical labeling."
+      />
+      <Field
+        label="Reagent SMILES" type="text" placeholder="CN1C=NC2=C1C(=O)N(C(=O)N2C)C"
+        value={formData.reagentSmiles} onChange={set('reagentSmiles')}
+        hint="Public reagent identity, stored on-chain. The lab's AI check uses it."
+      />
+      <Field
+        label="Peak Tolerance (0–255)" type="number" min="1" max="255"
+        value={formData.tolerance} onChange={set('tolerance', v => parseInt(v) || 0)}
+        hint="Largest allowed difference per peak between the lab's scan and this Gold Standard."
+      />
+      <Field
+        label="Days Until Expiry" type="number" min="1"
+        value={formData.expiryDays} onChange={set('expiryDays', v => parseInt(v) || 0)}
+      />
+    </SectionCard>
+  );
+}
+
+/* ── After mint: hand the Gold Standard package to the lab ───── */
+function downloadJson(filename, data) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+  const a = Object.assign(document.createElement('a'), { href: url, download: filename });
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function MintedCard({ minted, onDone }) {
+  const filename = `${minted.goldPackage.batchId}_token-${minted.tokenId ?? 'unknown'}_gold-standard.json`;
+  return (
+    <SectionCard style={{ borderTop: '3px solid #00C896' }}>
+      <CardHeading>Batch minted · Token #{minted.tokenId?.toString() ?? '?'}</CardHeading>
+      <p style={{ fontFamily: "'Playfair Display', serif", color: '#374151', lineHeight: 1.7, marginBottom: '1rem' }}>
+        Only a commitment to the fingerprint is on-chain. Send the Gold Standard
+        package below to the receiving lab with the shipment: they upload it on
+        the Lab Dashboard to prove their HPLC scan matches. Keep it private;
+        anyone holding it can see the fingerprint.
+      </p>
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <button type="button" className="btn btn-primary" onClick={() => downloadJson(filename, minted.goldPackage)}>
+          Download Gold Standard package
+        </button>
+        <button type="button" className="btn" onClick={onDone}>Go to dashboard →</button>
+      </div>
+      <div style={{ marginTop: '1rem', fontFamily: "'Courier New', monospace", fontSize: '0.72rem', color: '#6B7280', wordBreak: 'break-all' }}>
+        commitment {minted.goldPackage.commitment} · tolerance {minted.goldPackage.tolerance}
       </div>
     </SectionCard>
   );
@@ -419,9 +439,12 @@ export default function MintToken({ contract }) {
   const { mintBatch, loading, isGeneratingProof, error: gaslessError, consensusResult } = useGaslessContract();
   const [error,    setError]    = useState('');
   const [fpFile,   setFpFile]   = useState(null);
+  const [minted,   setMinted]   = useState(null);
   const [formData, setFormData] = useState({
-    batchId:    `BATCH-${Math.floor(Math.random() * 10000)}`,
-    expiryDays: 365,
+    batchId:       `BATCH-${Math.floor(Math.random() * 10000)}`,
+    reagentSmiles: '',
+    tolerance:     DEFAULT_TOLERANCE,
+    expiryDays:    365,
   });
 
   const handleMint = async (e) => {
@@ -429,13 +452,14 @@ export default function MintToken({ contract }) {
     if (!authenticated) { setError('Please log in first.'); return; }
     try {
       setError('');
-      const receipt = await mintBatch({
+      const result = await mintBatch({
         batchId:         formData.batchId,
+        reagentSmiles:   formData.reagentSmiles,
+        tolerance:       Number(formData.tolerance),
         daysUntilExpiry: Number(formData.expiryDays),
-        hplcFile:        fpFile,   // null = demo fallback inside hook
+        hplcFile:        fpFile,
       });
-      console.log('✓ Minted!', receipt);
-      navigate('/dashboard');
+      setMinted(result);
     } catch (err) {
       console.error('Mint failed:', err.message);
       setError(err.reason || err.message || 'Minting failed.');
@@ -494,8 +518,10 @@ export default function MintToken({ contract }) {
             </p>
           </div>
 
+          {minted && <MintedCard minted={minted} onDone={() => navigate('/dashboard')} />}
+
           {/* ── 2×2 Quadrant Grid ── */}
-          <form onSubmit={handleMint}>
+          {!minted && <form onSubmit={handleMint}>
             <div className="mint-quadrant-grid" style={{
               display: 'grid',
               gridTemplateColumns: '1fr 1fr',
@@ -504,7 +530,7 @@ export default function MintToken({ contract }) {
             }}>
               <ValidatorCard animDelay={0.08} consensusResult={consensusResult} />
               <UploadCard file={fpFile} onFile={setFpFile} animDelay={0.16} />
-              <NFTPreviewCard batchId={formData.batchId} expiryDays={formData.expiryDays} animDelay={0.24} />
+              <NFTPreviewCard batchId={formData.batchId} expiryDays={formData.expiryDays} tolerance={formData.tolerance} animDelay={0.24} />
               <FormCard formData={formData} setFormData={setFormData} animDelay={0.32} />
             </div>
 
@@ -588,7 +614,7 @@ export default function MintToken({ contract }) {
                 </>
               )}
             </button>
-          </form>
+          </form>}
         </div>
       </div>
 

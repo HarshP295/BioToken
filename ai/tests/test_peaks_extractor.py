@@ -27,14 +27,21 @@ def test_extract_peaks_pads_with_zeros_when_fewer_peaks_found():
     assert peaks.count(0) >= 9
 
 
-def test_validate_gold_standard_passes_identical_peaks():
-    peaks = [100, 105, 108, 102, 100, 95, 98, 101, 99, 100]
-    assert validate_against_gold_standard(peaks, peaks, threshold=10) is True
+GOLD = [255, 242, 237, 232, 227, 222, 218, 212, 208, 200]
 
 
-def test_validate_gold_standard_fails_large_delta():
-    peaks = [100, 500, 300, 400, 500, 600, 700, 800, 900, 1000]
-    assert validate_against_gold_standard(peaks, peaks, threshold=10) is False
+def test_validate_gold_standard_passes_within_tolerance():
+    lab = [255, 241, 239, 230, 228, 223, 216, 210, 207, 201]
+    assert validate_against_gold_standard(lab, GOLD, tolerance=10) is True
+
+
+def test_validate_gold_standard_fails_when_one_peak_is_off():
+    lab = GOLD[:9] + [GOLD[9] + 11]
+    assert validate_against_gold_standard(lab, GOLD, tolerance=10) is False
+
+
+def test_validate_gold_standard_rejects_out_of_range_values():
+    assert validate_against_gold_standard([300] + GOLD[1:], [300] + GOLD[1:], tolerance=10) is False
 
 
 def test_peaks_from_intensities_sorts_pads_and_scales():

@@ -13,7 +13,15 @@ export const publicClient = createPublicClient({
   transport: http(AMOY_RPC_URL),
 })
 
-export async function createSmartClient(privyWallet) {
+/**
+ * The wallet whose smart account sends every gasless transaction. Role
+ * registration must use the same choice, or roles land on a different address.
+ */
+export function pickTxWallet(wallets) {
+  return wallets.find(w => w.walletClientType === 'privy') || wallets[0]
+}
+
+async function buildSmartAccount(privyWallet) {
   await privyWallet.switchChain(80002)
 
   const eip1193Provider = await privyWallet.getEthereumProvider()
@@ -23,6 +31,25 @@ export async function createSmartClient(privyWallet) {
     transport: custom(eip1193Provider),
   })
 
+  return toSimpleSmartAccount({
+    client: publicClient,
+    owner: walletClient,
+    entryPoint: {
+      address: entryPoint07Address,
+      version: '0.7',
+    },
+  })
+}
+
+/**
+ * Address that is msg.sender for gasless transactions. BioToken checks
+ * MANUFACTURER_ROLE / LAB_ROLE against this address, not the Privy EOA.
+ */
+export async function getSmartAccountAddress(privyWallet) {
+  return (await buildSmartAccount(privyWallet)).address
+}
+
+export async function createSmartClient(privyWallet) {
   const pimlico = createPimlicoClient({
     transport: http(PIMLICO_RPC),
     entryPoint: {
@@ -33,14 +60,7 @@ export async function createSmartClient(privyWallet) {
 
   const gasPrices = await pimlico.getUserOperationGasPrice()
 
-  const smartAccount = await toSimpleSmartAccount({
-    client: publicClient,
-    owner: walletClient,
-    entryPoint: {
-      address: entryPoint07Address,
-      version: '0.7',
-    },
-  })
+  const smartAccount = await buildSmartAccount(privyWallet)
 
   const smartClient = createSmartAccountClient({
     account: smartAccount,

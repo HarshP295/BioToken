@@ -1,0 +1,97 @@
+{
+  "_note": "Inputs for each sample file and the result the system is expected to give. Checked by ai/tests/test_samples.py and samples/hplc/check_samples.mjs. Tolerance is the mint default (10).",
+  "tolerance": 10,
+  "manufacturer": [
+    {
+      "file": "manufacturer/BATCH-CAF-001_gold_standard.csv",
+      "batch_id": "BATCH-CAF-001",
+      "smiles": "CN1C=NC2=C1C(=O)N(C(=O)N2C)C",
+      "expected": "consensus PASS, token minted"
+    },
+    {
+      "file": "manufacturer/BATCH-SMRT-53193463_gold_standard.csv",
+      "batch_id": "BATCH-SMRT-53193463",
+      "smiles": "c1ccc(-c2oncc2CN2CCN(c3ccccn3)CC2)cc1",
+      "expected": "consensus PASS, token minted"
+    },
+    {
+      "file": "manufacturer/BATCH-SMRT-49677779_gold_standard.csv",
+      "batch_id": "BATCH-SMRT-49677779",
+      "smiles": "O=C(c1ccccc1F)N1CCC(COCc2ccccc2)CC1",
+      "expected": "consensus PASS, token minted"
+    },
+    {
+      "file": "manufacturer/BATCH-JSON-001_gold_standard.json",
+      "batch_id": "BATCH-JSON-001",
+      "smiles": "CC(=O)OC1=CC=CC=C1C(=O)O",
+      "expected": "consensus PASS, token minted"
+    },
+    {
+      "file": "manufacturer/NEGATIVE_consensus_fail.json",
+      "batch_id": "BATCH-NEG-001",
+      "smiles": "CN1C=NC2=C1C(=O)N(C(=O)N2C)C",
+      "expected": "consensus FAIL, mint blocked before any transaction"
+    }
+  ],
+  "lab": [
+    {
+      "file": "lab/BATCH-CAF-001_lab_scan_genuine.csv",
+      "gold_file": "manufacturer/BATCH-CAF-001_gold_standard.csv",
+      "reagent": "caffeine",
+      "smiles": "CN1C=NC2=C1C(=O)N(C(=O)N2C)C",
+      "observed_rt_s": 636.2,
+      "expected_ai": "GENUINE",
+      "expected_match": true,
+      "note": "636.2 s is the RT predictor's own estimate for caffeine (caffeine is not in METLIN SMRT), so the AI step passes by construction. Use the SMRT samples for an independent check."
+    },
+    {
+      "file": "lab/BATCH-CAF-001_lab_scan_rt_shifted.csv",
+      "gold_file": "manufacturer/BATCH-CAF-001_gold_standard.csv",
+      "reagent": "caffeine (RT +30%)",
+      "smiles": "CN1C=NC2=C1C(=O)N(C(=O)N2C)C",
+      "observed_rt_s": 827.1,
+      "expected_ai": "ANOMALY",
+      "expected_match": true,
+      "note": "Fingerprint matches, retention time does not: stopped by the AI step."
+    },
+    {
+      "file": "lab/BATCH-CAF-001_lab_scan_tampered.csv",
+      "gold_file": "manufacturer/BATCH-CAF-001_gold_standard.csv",
+      "reagent": "caffeine (4 peaks 20% low)",
+      "smiles": "CN1C=NC2=C1C(=O)N(C(=O)N2C)C",
+      "observed_rt_s": 636.2,
+      "expected_ai": "GENUINE",
+      "expected_match": false,
+      "note": "Retention time is right, fingerprint is not: no ZK proof can be produced."
+    },
+    {
+      "file": "lab/BATCH-SMRT-53193463_lab_scan_genuine.csv",
+      "gold_file": "manufacturer/BATCH-SMRT-53193463_gold_standard.csv",
+      "reagent": "PubChem CID 53193463 (METLIN SMRT, held-out test split)",
+      "smiles": "c1ccc(-c2oncc2CN2CCN(c3ccccn3)CC2)cc1",
+      "observed_rt_s": 603.4,
+      "expected_ai": "GENUINE",
+      "expected_match": true,
+      "note": "603.4 s is the measured SMRT retention time; the molecule was not used to train the RT predictor."
+    },
+    {
+      "file": "lab/BATCH-SMRT-49677779_lab_scan_genuine.csv",
+      "gold_file": "manufacturer/BATCH-SMRT-49677779_gold_standard.csv",
+      "reagent": "PubChem CID 49677779 (METLIN SMRT, held-out test split)",
+      "smiles": "O=C(c1ccccc1F)N1CCC(COCc2ccccc2)CC1",
+      "observed_rt_s": 945.2,
+      "expected_ai": "GENUINE",
+      "expected_match": true,
+      "note": "945.2 s is the measured SMRT retention time; the molecule was not used to train the RT predictor."
+    },
+    {
+      "file": "lab/BATCH-SMRT-49677779_lab_scan_rt_shifted.csv",
+      "gold_file": "manufacturer/BATCH-SMRT-49677779_gold_standard.csv",
+      "reagent": "PubChem CID 49677779 (RT -30%)",
+      "smiles": "O=C(c1ccccc1F)N1CCC(COCc2ccccc2)CC1",
+      "observed_rt_s": 661.6,
+      "expected_ai": "ANOMALY",
+      "expected_match": true
+    }
+  ]
+}

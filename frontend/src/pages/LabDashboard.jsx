@@ -16,7 +16,10 @@ import { useAuth } from '../hooks/useAuth';
 import { useWallets } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
 import { AMOY_RPC_URL, CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
-import { useLabVerification, LAB_STEPS } from '../hooks/useLabVerification';
+import { useLabVerification, LAB_STEPS, checkAgainstToken } from '../hooks/useLabVerification';
+import { parseHplcFile } from '../lib/hplcParser';
+import { parseGoldPackage } from '../lib/fingerprint';
+import { getSmartAccountAddress, pickTxWallet } from '../lib/pimlico';
 import DNABackground from '../components/DNABackground';
 import { useRole } from '../hooks/useRole';
 
@@ -28,6 +31,45 @@ const STATUS_META = [
   { label: 'VERIFIED',   color: '#00C896', icon: <ShieldCheck size={14} /> },
   { label: 'CONSUMED',   color: '#FF4D4D', icon: <Beaker size={14} /> },
 ];
+
+const labelStyle = {
+  display: 'block',
+  fontFamily: "'Courier New', monospace",
+  fontSize: '0.62rem', fontWeight: 700,
+  letterSpacing: '0.1em', textTransform: 'uppercase',
+  color: '#6B7280', marginBottom: '0.4rem',
+};
+const hintStyle = {
+  fontFamily: "'Playfair Display', serif",
+  fontSize: '0.75rem', color: '#9CA3AF', marginTop: '0.3rem',
+};
+const inputStyle = {
+  width: '100%', padding: '0.75rem 1rem',
+  background: '#f7fbf9', border: '1.5px solid #e0ede9',
+  borderRadius: '10px', color: '#0d1f1a',
+  fontFamily: "'Courier New', monospace",
+  fontSize: '0.85rem', outline: 'none',
+};
+
+function PeakChips({ label, values }) {
+  return (
+    <div style={{ marginBottom: '1.25rem' }}>
+      <div style={labelStyle}>{label}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.5rem' }}>
+        {values.map((v, i) => (
+          <div key={i} style={{
+            textAlign: 'center', padding: '0.55rem 0.3rem', borderRadius: '8px',
+            background: 'rgba(0,200,150,0.06)', border: '1px solid rgba(0,200,150,0.18)',
+            fontFamily: "'Courier New', monospace",
+          }}>
+            <div style={{ fontSize: '0.55rem', color: '#9CA3AF', marginBottom: '0.15rem' }}>P{i + 1}</div>
+            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#065F46' }}>{v}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // Lab only cares about tokens that have passed to their side (status >= 2)
 const LAB_STATUSES = new Set([2, 3, 4]);
@@ -52,18 +94,17 @@ function LabTokensOverview({ wallets }) {
         contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, fp);
       }
       const fetched = [];
-      for (let i = 0; i < 50; i++) {
-        try {
-          const owner = await contract.ownerOf(i);
-          const data  = await contract.getTokenData(i);
-          const status = Number(data.status);
-          if (LAB_STATUSES.has(status)) {
-            fetched.push({
-              id: i, owner, batchId: data.batchId,
-              expiry: Number(data.expiry), status,
-            });
-          }
-        } catch { break; }
+      const total = Number(await contract.totalMinted());
+      for (let i = 0; i < total; i++) {
+        const owner = await contract.ownerOf(i);
+        const data  = await contract.getTokenData(i);
+        const status = Number(data.status);
+        if (LAB_STATUSES.has(status)) {
+          fetched.push({
+            id: i, owner, batchId: data.batchId,
+            expiry: Number(data.expiry), status,
+          });
+        }
       }
       setTokens(fetched.reverse());
     } catch (err) {
@@ -538,23 +579,20 @@ function TokenInfoCard({ token }) {
         </div>
       </div>
 
-      {token.vkHash && token.vkHash !== '0x' + '0'.repeat(64) && (
-        <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #e0ede9' }}>
-          <div style={{
-            fontFamily: "'Courier New', monospace",
-            fontSize: '0.62rem', fontWeight: 700,
-            color: '#6B7280', textTransform: 'uppercase',
-            letterSpacing: '0.1em', marginBottom: '0.3rem',
-          }}>Verification Key Commitment</div>
-          <div style={{
-            fontFamily: "'Courier New', monospace",
-            fontSize: '0.72rem', color: '#6B7280',
-            background: '#F3F2EF', padding: '0.6rem 0.8rem',
-            borderRadius: '8px', border: '1px solid #E5E3DF',
-            wordBreak: 'break-all', lineHeight: 1.5,
-          }}>{token.vkHash}</div>
+      <div style={{ marginTop: '1rem', paddingTop: '1rem', borderTop: '1px solid #e0ede9' }}>
+        <div style={labelStyle}>Gold Standard Commitment · tolerance ±{token.tolerance}</div>
+        <div style={{
+          fontFamily: "'Courier New', monospace",
+          fontSize: '0.72rem', color: '#6B7280',
+          background: '#F3F2EF', padding: '0.6rem 0.8rem',
+          borderRadius: '8px', border: '1px solid #E5E3DF',
+          wordBreak: 'break-all', lineHeight: 1.5,
+        }}>{token.commitment}</div>
+        <div style={{ ...labelStyle, marginTop: '0.75rem' }}>Reagent</div>
+        <div style={{ fontFamily: "'Courier New', monospace", fontSize: '0.78rem', color: '#0d1f1a', wordBreak: 'break-all' }}>
+          {token.reagentSmiles}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -588,8 +626,8 @@ function SuccessCard({ txReceipt, tokenId }) {
         fontSize: '0.95rem', color: '#6B7280',
         marginBottom: '1.5rem',
       }}>
-        Token #{tokenId} has been verified on-chain. NFT status updated to VERIFIED
-        and ownership transferred to your lab wallet.
+        Token #{tokenId} has been verified on-chain: the AI oracle signed a GENUINE
+        verdict and your scan matched the committed Gold Standard. Status is now VERIFIED.
       </div>
       <Link to={`/details?id=${tokenId}`} style={{
         display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
@@ -619,41 +657,61 @@ export default function LabDashboard() {
 
   const [tokenIdInput,     setTokenIdInput]     = useState('');
   const [labFile,          setLabFile]          = useState(null);
-  const [extractedPeaks,   setExtractedPeaks]   = useState(null);   // number[10] from API
-  const [peaksConfirmed,   setPeaksConfirmed]   = useState('');      // editable display string
-  const [computedThreshold,setComputedThreshold]= useState(null);   // number from API
+  const [extractedPeaks,   setExtractedPeaks]   = useState(null);   // number[10], parsed in the browser
   const [extracting,       setExtracting]       = useState(false);
   const [extractError,     setExtractError]     = useState(null);
   const [labDragging,      setLabDragging]      = useState(false);
-  const [reagentSmiles,    setReagentSmiles]    = useState('');      // reagent structure for RDKit
+  const [goldPackage,      setGoldPackage]      = useState(null);   // from the manufacturer, off-chain
+  const [goldFileName,     setGoldFileName]     = useState('');
+  const [goldError,        setGoldError]        = useState(null);
   const [observedRt,       setObservedRt]       = useState('');      // lab-measured RT (seconds)
+  const [labAddress,       setLabAddress]       = useState('');      // smart account that holds tokens
 
-  // ── CSV upload → /extract-peaks ────────────────────────────────
+  // The address manufacturers ship to: the smart account behind gasless txs.
+  useEffect(() => {
+    const wallet = pickTxWallet(wallets);
+    if (!wallet) return;
+    let cancelled = false;
+    getSmartAccountAddress(wallet)
+      .then(addr => { if (!cancelled) setLabAddress(addr); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [wallets]);
+
+  // Lab scan vs Gold Standard, peak by peak (what the circuit will check).
+  let comparison = null, comparisonError = null;
+  if (tokenData && goldPackage && extractedPeaks) {
+    try { comparison = checkAgainstToken(tokenData, goldPackage, extractedPeaks); }
+    catch (err) { comparisonError = err.message; }
+  }
+
+  // ── Lab chromatogram CSV → 10 peaks (in the browser; never uploaded) ──
   const handleLabFile = async (file) => {
     if (!file) return;
     setLabFile(file);
     setExtractError(null);
     setExtractedPeaks(null);
-    setPeaksConfirmed('');
-    setComputedThreshold(null);
     setExtracting(true);
     try {
-      const AI_URL = import.meta.env.VITE_AI_API_URL || 'http://localhost:8000';
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await fetch(`${AI_URL}/extract-peaks`, { method: 'POST', body: fd });
-      if (!res.ok) {
-        const detail = await res.json().catch(() => ({}));
-        throw new Error(detail.detail || `Server error ${res.status}`);
-      }
-      const data = await res.json();
-      setExtractedPeaks(data.peaks);          // number[10]
-      setPeaksConfirmed(data.peaks.join(', '));
-      setComputedThreshold(data.threshold);
+      const { peaks } = await parseHplcFile(file);
+      setExtractedPeaks(peaks.map(Number));
     } catch (err) {
       setExtractError(`Extraction failed: ${err.message}`);
     } finally {
       setExtracting(false);
+    }
+  };
+
+  // ── Gold Standard package (JSON from the manufacturer) ──
+  const handleGoldFile = async (file) => {
+    if (!file) return;
+    setGoldFileName(file.name);
+    setGoldError(null);
+    setGoldPackage(null);
+    try {
+      setGoldPackage(await parseGoldPackage(await file.text()));
+    } catch (err) {
+      setGoldError(err.message);
     }
   };
 
@@ -666,26 +724,23 @@ export default function LabDashboard() {
 
   const handleAiCheck = async (e) => {
     e.preventDefault();
-    const peaks = peaksConfirmed.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
-    if (peaks.length !== 10) {
-      alert('Please upload a CSV to extract exactly 10 HPLC peak values.');
+    if (!comparison) {
+      alert(comparisonError || 'Upload the lab chromatogram CSV and the Gold Standard package first.');
       return;
     }
     const rt = parseFloat(observedRt);
-    if (!reagentSmiles.trim() || !(rt > 0)) {
-      alert('Enter the reagent SMILES and the observed retention time (seconds).');
+    if (!(rt > 0)) {
+      alert('Enter the observed retention time (seconds).');
       return;
     }
-    await runAiCheck({ smiles: reagentSmiles, observedRt: rt });
+    await runAiCheck({ observedRt: rt });
   };
 
   const handleGenerateProof = async () => {
-    const peaks = peaksConfirmed.split(',').map(v => parseInt(v.trim())).filter(v => !isNaN(v));
-    const threshold = computedThreshold ?? 50;
-    const proofData = await generateProof(peaks, threshold);
+    const proofData = await generateProof({ labPeaks: extractedPeaks, goldPackage });
     // Auto-submit after proof generation
     if (proofData && tokenData) {
-      await submitVerification(tokenData.id, proofData.proof, proofData.publicSignals);
+      await submitVerification(tokenData.id, proofData.proof, aiResult.attestation);
     }
   };
 
@@ -694,12 +749,12 @@ export default function LabDashboard() {
     setTokenIdInput('');
     setLabFile(null);
     setExtractedPeaks(null);
-    setPeaksConfirmed('');
-    setComputedThreshold(null);
     setExtracting(false);
     setExtractError(null);
     setLabDragging(false);
-    setReagentSmiles('');
+    setGoldPackage(null);
+    setGoldFileName('');
+    setGoldError(null);
     setObservedRt('');
   };
 
@@ -888,6 +943,19 @@ export default function LabDashboard() {
 
           {/* ── Lab Reagent Overview ── */}
           <LabTokensOverview wallets={wallets} />
+
+          {/* ── Receiving address for manufacturers ── */}
+          {labAddress && (
+            <div style={{
+              background: '#fff', borderRadius: '12px', border: '1px solid #e0ede9',
+              padding: '0.9rem 1.25rem', marginBottom: '1.25rem',
+            }}>
+              <div style={labelStyle}>Your lab address — give this to manufacturers as the shipping address</div>
+              <div style={{ fontFamily: "'Courier New', monospace", fontSize: '0.82rem', color: '#4F46E5', wordBreak: 'break-all' }}>
+                {labAddress}
+              </div>
+            </div>
+          )}
 
           {/* ── Token Info ── */}
           <TokenInfoCard token={tokenData} />
@@ -1175,165 +1243,95 @@ export default function LabDashboard() {
                 </div>
               )}
 
-              {/* ── Extracted peak preview + threshold ── */}
+              {/* ── Extracted lab peaks ── */}
               {extractedPeaks && (
                 <form onSubmit={handleAiCheck}>
-                  {/* Per-peak chip grid */}
+                  <PeakChips label="Lab Scan Peaks — extracted in your browser" values={extractedPeaks} />
+
+                  {/* ── Gold Standard package from the manufacturer ── */}
                   <div style={{ marginBottom: '1.25rem' }}>
-                    <label style={{
-                      display: 'block',
-                      fontFamily: "'Courier New', monospace",
-                      fontSize: '0.68rem', fontWeight: 700,
-                      letterSpacing: '0.1em', textTransform: 'uppercase',
-                      color: '#6B7280', marginBottom: '0.6rem',
-                    }}>Extracted Peak Profile — 10 Values</label>
-
-                    {/* Visual chip row */}
-                    <div style={{
-                      display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)',
-                      gap: '0.5rem', marginBottom: '0.75rem',
-                    }}>
-                      {extractedPeaks.map((v, i) => (
-                        <div key={i} style={{
-                          textAlign: 'center',
-                          padding: '0.55rem 0.3rem',
-                          borderRadius: '8px',
-                          background: 'rgba(0,200,150,0.06)',
-                          border: '1px solid rgba(0,200,150,0.18)',
-                        }}>
-                          <div style={{
-                            fontFamily: "'Courier New', monospace",
-                            fontSize: '0.55rem', color: '#9CA3AF',
-                            letterSpacing: '0.08em', marginBottom: '0.15rem',
-                          }}>P{i + 1}</div>
-                          <div style={{
-                            fontFamily: "'Courier New', monospace",
-                            fontSize: '0.85rem', fontWeight: 700,
-                            color: '#065F46',
-                          }}>{v}</div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* Editable confirmation field */}
+                    <label htmlFor="gold-file-input" style={labelStyle}>Gold Standard Package (JSON from the manufacturer)</label>
                     <input
-                      type="text"
-                      value={peaksConfirmed}
-                      onChange={e => setPeaksConfirmed(e.target.value)}
-                      required
+                      id="gold-file-input"
+                      type="file"
+                      accept=".json"
                       disabled={loading}
-                      style={{
-                        width: '100%', padding: '0.75rem 1rem',
-                        background: '#f7fbf9', border: '1.5px solid #e0ede9',
-                        borderRadius: '10px', color: '#0d1f1a',
-                        fontFamily: "'Courier New', monospace",
-                        fontSize: '0.85rem', outline: 'none',
-                        transition: 'border-color 0.2s, box-shadow 0.2s',
-                      }}
-                      onFocus={e => {
-                        e.target.style.borderColor = '#00C896';
-                        e.target.style.boxShadow = '0 0 0 3px rgba(0,200,150,0.12)';
-                      }}
-                      onBlur={e => {
-                        e.target.style.borderColor = '#e0ede9';
-                        e.target.style.boxShadow = 'none';
-                      }}
+                      onChange={e => { if (e.target.files[0]) handleGoldFile(e.target.files[0]); }}
+                      style={{ fontFamily: "'Courier New', monospace", fontSize: '0.8rem' }}
                     />
-                    <p style={{
-                      fontFamily: "'Playfair Display', serif",
-                      fontSize: '0.75rem', color: '#9CA3AF', marginTop: '0.3rem',
-                    }}>Auto-populated from CSV · Edit if needed before submitting.</p>
-                  </div>
-
-                  {/* Dynamic threshold display */}
-                  <div style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '0.75rem 1rem',
-                    background: '#f7fbf9',
-                    border: '1.5px solid #e0ede9',
-                    borderRadius: '10px',
-                    marginBottom: '1.25rem',
-                  }}>
-                    <div>
-                      <div style={{
-                        fontFamily: "'Courier New', monospace",
-                        fontSize: '0.62rem', fontWeight: 700,
-                        letterSpacing: '0.1em', textTransform: 'uppercase',
-                        color: '#6B7280', marginBottom: '0.2rem',
-                      }}>Tolerance Threshold (σ) — Auto-computed</div>
-                      <div style={{
-                        fontFamily: "'Courier New', monospace",
-                        fontSize: '0.72rem', color: '#9CA3AF',
-                      }}>max adjacent Δ + 5, min 50 — matches manufacturer circuit</div>
-                    </div>
-                    <div style={{
-                      fontFamily: "'Courier New', monospace",
-                      fontSize: '1.4rem', fontWeight: 700,
-                      color: '#00A87E',
-                      paddingLeft: '1rem',
-                      flexShrink: 0,
-                    }}>{computedThreshold}</div>
-                  </div>
-
-                  {/* Reagent identity + measured RT for the AI anomaly classifier */}
-                  <div style={{
-                    display: 'grid', gridTemplateColumns: '2fr 1fr',
-                    gap: '0.75rem', marginBottom: '1.25rem',
-                  }}>
-                    {[
-                      { id: 'lab-smiles', label: 'Reagent SMILES', value: reagentSmiles, set: setReagentSmiles,
-                        type: 'text', placeholder: 'e.g. CN1C=NC2=C1C(=O)N(C(=O)N2C)C' },
-                      { id: 'lab-rt', label: 'Observed RT (s)', value: observedRt, set: setObservedRt,
-                        type: 'number', placeholder: 'e.g. 636.2' },
-                    ].map(f => (
-                      <div key={f.id}>
-                        <label htmlFor={f.id} style={{
-                          display: 'block',
-                          fontFamily: "'Courier New', monospace",
-                          fontSize: '0.62rem', fontWeight: 700,
-                          letterSpacing: '0.1em', textTransform: 'uppercase',
-                          color: '#6B7280', marginBottom: '0.4rem',
-                        }}>{f.label}</label>
-                        <input
-                          id={f.id}
-                          type={f.type}
-                          step={f.type === 'number' ? 'any' : undefined}
-                          min={f.type === 'number' ? '0' : undefined}
-                          value={f.value}
-                          onChange={e => f.set(e.target.value)}
-                          placeholder={f.placeholder}
-                          required
-                          disabled={loading}
-                          style={{
-                            width: '100%', padding: '0.75rem 1rem',
-                            background: '#f7fbf9', border: '1.5px solid #e0ede9',
-                            borderRadius: '10px', color: '#0d1f1a',
-                            fontFamily: "'Courier New', monospace",
-                            fontSize: '0.85rem', outline: 'none',
-                          }}
-                        />
+                    {goldFileName && !goldError && goldPackage && (
+                      <div style={{ ...hintStyle, color: '#065F46' }}>
+                        {goldFileName} · batch {goldPackage.batchId} · commitment checked
                       </div>
-                    ))}
+                    )}
+                    {goldError && <div style={{ ...hintStyle, color: '#991B1B' }}>{goldError}</div>}
                   </div>
-                  <p style={{
-                    fontFamily: "'Playfair Display', serif",
-                    fontSize: '0.75rem', color: '#9CA3AF', marginTop: '-0.9rem', marginBottom: '1.25rem',
-                  }}>RDKit computes 137 molecular features from the SMILES; the classifier compares the measured RT with the predicted RT. Peak values stay in your browser.</p>
+
+                  {comparisonError && (
+                    <div style={{ ...hintStyle, color: '#991B1B', marginBottom: '1.25rem' }}>{comparisonError}</div>
+                  )}
+                  {comparison && (
+                    <div style={{ marginBottom: '1.25rem' }}>
+                      <div style={labelStyle}>Lab vs Gold Standard — tolerance ±{tokenData.tolerance}</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.5rem' }}>
+                        {comparison.perPeak.map(p => (
+                          <div key={p.index} style={{
+                            textAlign: 'center', padding: '0.45rem 0.3rem', borderRadius: '8px',
+                            background: p.ok ? 'rgba(0,200,150,0.06)' : 'rgba(255,77,77,0.06)',
+                            border: `1px solid ${p.ok ? 'rgba(0,200,150,0.18)' : 'rgba(255,77,77,0.3)'}`,
+                            fontFamily: "'Courier New', monospace",
+                          }}>
+                            <div style={{ fontSize: '0.55rem', color: '#9CA3AF' }}>P{p.index + 1}</div>
+                            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: p.ok ? '#065F46' : '#991B1B' }}>
+                              {p.lab}/{p.gold}
+                            </div>
+                            <div style={{ fontSize: '0.6rem', color: p.ok ? '#065F46' : '#991B1B' }}>Δ{p.delta}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ ...hintStyle, color: comparison.passed ? '#065F46' : '#991B1B' }}>
+                        {comparison.passed
+                          ? 'All peaks within tolerance. A ZK proof can be generated.'
+                          : 'Some peaks are outside tolerance. This batch cannot be verified.'}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Reagent identity (from chain) + measured RT for the AI classifier */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '0.75rem', marginBottom: '1.25rem' }}>
+                    <div>
+                      <div style={labelStyle}>Reagent SMILES (recorded at mint)</div>
+                      <div style={{ ...inputStyle, background: '#F3F2EF', wordBreak: 'break-all' }}>{tokenData.reagentSmiles}</div>
+                    </div>
+                    <div>
+                      <label htmlFor="lab-rt" style={labelStyle}>Observed RT (s)</label>
+                      <input
+                        id="lab-rt" type="number" step="any" min="0"
+                        value={observedRt} onChange={e => setObservedRt(e.target.value)}
+                        placeholder="e.g. 636.2" required disabled={loading}
+                        style={inputStyle}
+                      />
+                    </div>
+                  </div>
+                  <p style={{ ...hintStyle, marginTop: '-0.9rem', marginBottom: '1.25rem' }}>
+                    RDKit computes 137 molecular features from the SMILES; the classifier compares the measured RT
+                    with the predicted RT. Only the SMILES and RT are sent; peak values stay in your browser.
+                  </p>
 
                   <button
                     type="submit"
-                    disabled={loading || !extractedPeaks}
+                    disabled={loading || !comparison?.passed}
                     style={{
                       width: '100%', padding: '0.9rem',
                       borderRadius: '9999px',
-                      background: (loading || !extractedPeaks) ? '#9CA3AF' : '#00C896',
+                      background: (loading || !comparison?.passed) ? '#9CA3AF' : '#00C896',
                       color: '#fff', border: 'none',
                       fontFamily: "'Libre Baskerville', serif",
                       fontSize: '0.95rem', fontWeight: 700,
-                      cursor: (loading || !extractedPeaks) ? 'not-allowed' : 'pointer',
+                      cursor: (loading || !comparison?.passed) ? 'not-allowed' : 'pointer',
                       display: 'flex', alignItems: 'center',
                       justifyContent: 'center', gap: '0.5rem',
-                      boxShadow: (loading || !extractedPeaks) ? 'none' : '0 8px 24px rgba(0,200,150,0.2)',
+                      boxShadow: (loading || !comparison?.passed) ? 'none' : '0 8px 24px rgba(0,200,150,0.2)',
                       transition: 'all 0.2s ease',
                     }}
                   >
@@ -1363,7 +1361,7 @@ export default function LabDashboard() {
                   fontFamily: "'Playfair Display', serif",
                   fontSize: '0.82rem', color: '#9CA3AF',
                   textAlign: 'center', marginTop: '0.5rem',
-                }}>Upload a CSV above to auto-extract peak profile · CSV only</p>
+                }}>Upload the lab chromatogram CSV above · it is read in your browser, not uploaded</p>
               )}
             </div>
           )}

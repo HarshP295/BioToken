@@ -1,22 +1,28 @@
+// scripts/grantRoles.js
+// Grant a BioToken role from the admin (deployer) key.
+//
+//   ROLE=LAB ADDRESS=0x... npx hardhat run scripts/grantRoles.js --network amoy
+//   ROLE is MANUFACTURER, LAB or AI_ORACLE. For web-app users, ADDRESS is the
+//   smart-account address (shown on the Lab Dashboard), not the Privy wallet.
 const hre = require("hardhat");
-const deployment = require("../deployments/localhost.json");
+const fs = require("fs");
+const path = require("path");
 
 async function main() {
-    const [deployer] = await hre.ethers.getSigners();
-    const BioToken = await hre.ethers.getContractFactory("BioToken");
-    const contract = BioToken.attach(deployment.BioToken.address);
-
-    const address = "0xdD2FD4581271e230360230F9337D5c0430Bf44C0";
-    
-    const MANUFACTURER_ROLE = await contract.MANUFACTURER_ROLE();
-    const LOGISTICS_ROLE = await contract.LOGISTICS_ROLE();
-    const LAB_ROLE = await contract.LAB_ROLE();
-
-    await (await contract.grantRole(MANUFACTURER_ROLE, address)).wait();
-    await (await contract.grantRole(LOGISTICS_ROLE, address)).wait();
-    await (await contract.grantRole(LAB_ROLE, address)).wait();
-    
-    console.log("All roles granted to", address);
+    const role = (process.env.ROLE || "").toUpperCase();
+    const address = process.env.ADDRESS;
+    if (!["MANUFACTURER", "LAB", "AI_ORACLE"].includes(role) || !hre.ethers.isAddress(address)) {
+        throw new Error("Set ROLE=MANUFACTURER|LAB|AI_ORACLE and ADDRESS=0x...");
+    }
+    const deployment = JSON.parse(fs.readFileSync(path.join(__dirname, "..", "deployments", `${hre.network.name}.json`), "utf8"));
+    const bioToken = await hre.ethers.getContractAt("BioToken", deployment.BioToken.address);
+    const roleHash = await bioToken[`${role}_ROLE`]();
+    if (await bioToken.hasRole(roleHash, address)) {
+        console.log(`${address} already has ${role}_ROLE`);
+        return;
+    }
+    await (await bioToken.grantRole(roleHash, address)).wait();
+    console.log(`${role}_ROLE granted to ${address}`);
 }
 
-main().catch(console.error);
+main().catch((err) => { console.error(err.message); process.exitCode = 1; });

@@ -2,26 +2,27 @@
  * useLabVerification.js — Lab verification pipeline hook
  *
  * Completely isolated from useGaslessContract (manufacturer flow).
- * Manages the full 4-step lab verification lifecycle:
- *   Step 1: Fetch NFT + vk from chain
- *   Step 2: AI pre-screen (POST /verify)
- *   Step 3: ZK proof generation (client-side snarkjs)
- *   Step 4: On-chain verifyProof() via Pimlico gasless tx
+ *   Step 1: Fetch the token (reagent, commitment, tolerance) from chain
+ *   Step 2: AI pre-screen (POST /verify) → GENUINE verdict + oracle signature
+ *   Step 3: ZK proof in the browser: lab peaks within tolerance of the
+ *           Gold Standard committed on-chain, bound to this token id
+ *   Step 4: verifyProof(tokenId, proof, aiAttestation) via Pimlico gasless tx
  *
- * The Gold Standard peaks data never leaves the browser.
+ * The lab scan and the Gold Standard package never leave the browser.
  */
 
 import { useState, useCallback } from 'react'
 import { ethers } from 'ethers'
 import { useWallets, usePrivy } from '@privy-io/react-auth'
-import { createSmartClient } from '../lib/pimlico'
+import { createSmartClient, pickTxWallet } from '../lib/pimlico'
 import { encodeFunctionData } from 'viem'
-import { AMOY_RPC_URL, CONTRACT_ADDRESS, CONTRACT_ABI } from '../config'
+import { AMOY_RPC_URL, CONTRACT_ADDRESS, CONTRACT_ABI, TARGET_CHAIN_ID } from '../config'
+import { buildCircuitInput, compareToGold, formatProofForContract } from '../lib/fingerprint'
 
-// ─── Circuit config (matches fingerprint.circom) ─────────────────────────────
-const N_PEAKS    = 10
+// ─── Circuit artifacts (served from /public) ─────────────────────────────────
 const WASM_URL   = '/fingerprint.wasm'
 const ZKEY_URL   = '/fingerprint_final.zkey'
+const AI_URL     = import.meta.env.VITE_AI_API_URL || 'http://localhost:8000'
 
 // ─── Pipeline steps ──────────────────────────────────────────────────────────
 export const LAB_STEPS = {
@@ -31,6 +32,23 @@ export const LAB_STEPS = {
   ZK_PROVING: 3,
   SUBMITTING: 4,
   DONE:       5,
+}
+
+/**
+ * Checks a Gold Standard package against the token's on-chain record, then
+ * compares the lab peaks with it. Throws with a readable reason on mismatch.
+ */
+export function checkAgainstToken(token, goldPackage, labPeaks) {
+  if (goldPackage.tokenId != null && String(goldPackage.tokenId) !== String(token.id)) {
+    throw new Error(`This Gold Standard package is for token #${goldPackage.tokenId}, not #${token.id}.`)
+  }
+  if (goldPackage.commitment.toLowerCase() !== token.commitment.toLowerCase()) {
+    throw new Error('This Gold Standard package does not match the fingerprint committed on-chain for this token.')
+  }
+  if (Number(goldPackage.tolerance) !== token.tolerance) {
+    throw new Error(`Package tolerance ${goldPackage.tolerance} differs from the on-chain tolerance ${token.tolerance}.`)
+  }
+  return compareToGold(labPeaks, goldPackage.peaks, token.tolerance)
 }
 
 export function useLabVerification() {
@@ -45,21 +63,12 @@ export function useLabVerification() {
   const [error,     setError]     = useState(null)
   const [loading,   setLoading]   = useState(false)
 
-  // ── Helper: get a contract instance ────────────────────────────────────────
-  const getContract = useCallback(async () => {
-    const wallet = wallets[0]
-    if (wallet) {
-      const provider = await wallet.getEthereumProvider()
-      const bp = new ethers.BrowserProvider(provider)
-      const signer = await bp.getSigner()
-      return new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer)
-    }
-    // Read-only fallback
-    const fp = new ethers.JsonRpcProvider(AMOY_RPC_URL)
-    return new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, fp)
-  }, [wallets])
+  // ── Helper: read-only contract instance ────────────────────────────────────
+  const getContract = useCallback(() => {
+    return new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, new ethers.JsonRpcProvider(AMOY_RPC_URL))
+  }, [])
 
-  // ── Step 1: Fetch NFT + vk from chain ──────────────────────────────────────
+  // ── Step 1: Fetch token from chain ─────────────────────────────────────────
   const fetchToken = useCallback(async (tokenId) => {
     setStep(LAB_STEPS.FETCHING)
     setError(null)
@@ -69,25 +78,27 @@ export function useLabVerification() {
     setLoading(true)
 
     try {
-      const contract = await getContract()
+      const contract = getContract()
       const owner = await contract.ownerOf(tokenId)
       const data  = await contract.getTokenData(tokenId)
 
       const token = {
-        id:       tokenId,
+        id:            String(tokenId),
         owner,
-        batchId:  data.batchId,
-        expiry:   new Date(Number(data.expiry) * 1000).toLocaleString(),
-        rawExpiry: Number(data.expiry),
-        status:   Number(data.status),
-        vkHash:   data.verificationKey,
+        batchId:       data.batchId,
+        reagentSmiles: data.reagentSmiles,
+        expiry:        new Date(Number(data.expiry) * 1000).toLocaleString(),
+        rawExpiry:     Number(data.expiry),
+        status:        Number(data.status),
+        commitment:    data.fingerprintCommitment,
+        tolerance:     Number(data.tolerance),
       }
 
       setTokenData(token)
       setStep(LAB_STEPS.AI_CHECK)
       return token
     } catch (err) {
-      setError(`Token fetch failed: ${err.message}`)
+      setError(`Token fetch failed: ${err.shortMessage || err.message}`)
       setStep(LAB_STEPS.IDLE)
       throw err
     } finally {
@@ -96,52 +107,37 @@ export function useLabVerification() {
   }, [getContract])
 
   // ── Step 2: AI pre-screen ──────────────────────────────────────────────────
-  // Inputs are the reagent's SMILES and the retention time (seconds) the lab
-  // measured. The Gold Standard peaks are NOT sent — they stay in the browser.
-  const runAiCheck = useCallback(async ({ smiles, observedRt }) => {
+  // The reagent comes from the token itself; the lab supplies only the RT it
+  // measured. A GENUINE result carries the AI oracle's signature, which
+  // BioToken.verifyProof checks.
+  const runAiCheck = useCallback(async ({ observedRt }) => {
     setStep(LAB_STEPS.AI_CHECK)
     setError(null)
     setLoading(true)
 
     try {
-      const AI_URL = import.meta.env.VITE_AI_API_URL || 'http://localhost:8000'
-
-      // Step 2A: SMILES + observed RT → 137 RDKit features
-      const featRes = await fetch(`${AI_URL}/compute-features`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ smiles: smiles.trim(), observed_rt: Number(observedRt) }),
-      })
-      if (!featRes.ok) {
-        const detail = await featRes.json().catch(() => ({}))
-        throw new Error(detail.detail || 'Feature computation failed')
-      }
-      const { observed_features, observed_rt } = await featRes.json()
-
-      // Step 2B: AI classifier
-      const verifyRes = await fetch(`${AI_URL}/verify`, {
+      const res = await fetch(`${AI_URL}/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          observed_features,
-          observed_rt,
-          token_id: Number(tokenData?.id || 0),
+          smiles:           tokenData.reagentSmiles,
+          observed_rt:      Number(observedRt),
+          token_id:         Number(tokenData.id),
+          chain_id:         TARGET_CHAIN_ID,
+          contract_address: CONTRACT_ADDRESS,
         }),
       })
-      if (!verifyRes.ok) {
-        const detail = await verifyRes.json().catch(() => ({}))
+      if (!res.ok) {
+        const detail = await res.json().catch(() => ({}))
         throw new Error(detail.detail || 'AI verification failed')
       }
-      const result = await verifyRes.json()
-
-      setAiResult(result)
-
-      if (result.genuine) {
-        setStep(LAB_STEPS.ZK_PROVING)
-      } else {
-        setStep(LAB_STEPS.IDLE)
+      const result = await res.json()
+      if (result.genuine && !result.attestation) {
+        throw new Error('AI service returned GENUINE without an oracle signature (AI_ORACLE_PRIVATE_KEY not set on the server).')
       }
 
+      setAiResult(result)
+      setStep(result.genuine ? LAB_STEPS.ZK_PROVING : LAB_STEPS.IDLE)
       return result
     } catch (err) {
       setError(`AI check failed: ${err.message}`)
@@ -152,23 +148,21 @@ export function useLabVerification() {
     }
   }, [tokenData])
 
-  // ── Step 3: Generate ZK proof (client-side, primary path) ──────────────────
-  const generateProof = useCallback(async (peaks, threshold = 10) => {
+  // ── Step 3: ZK proof (client-side) ─────────────────────────────────────────
+  const generateProof = useCallback(async ({ labPeaks, goldPackage }) => {
     setStep(LAB_STEPS.ZK_PROVING)
     setError(null)
     setLoading(true)
 
     try {
-      // Lazy-load snarkjs to avoid SES lockdown breaking Privy at page load
-      const snarkjs = await import('snarkjs')
-
-      // Prepare circuit inputs (snarkjs expects string-encoded field elements)
-      const circuitInputs = {
-        peaks:     peaks.map(String),
-        threshold: String(threshold),
+      const comparison = checkAgainstToken(tokenData, goldPackage, labPeaks)
+      if (!comparison.passed) {
+        const off = comparison.perPeak.filter(p => !p.ok).map(p => `P${p.index + 1} Δ${p.delta}`).join(', ')
+        throw new Error(`Lab scan does not match the Gold Standard within ±${tokenData.tolerance} (${off}). No proof can be made for this batch.`)
       }
 
-      // Fetch circuit artifacts
+      // Lazy-load snarkjs to avoid SES lockdown breaking Privy at page load
+      const snarkjs = await import('snarkjs')
       const [wasmBuf, zkeyBuf] = await Promise.all([
         fetch(WASM_URL).then(r => {
           if (!r.ok) throw new Error('Failed to load fingerprint.wasm')
@@ -180,19 +174,17 @@ export function useLabVerification() {
         }),
       ])
 
-      // Run fullProve: witness generation + Groth16 proving
+      const input = buildCircuitInput({
+        labPeaks,
+        goldPeaks:  goldPackage.peaks,
+        salt:       goldPackage.salt,
+        commitment: tokenData.commitment,
+        tolerance:  tokenData.tolerance,
+        tokenId:    tokenData.id,
+      })
       const { proof, publicSignals } = await snarkjs.groth16.fullProve(
-        circuitInputs,
-        new Uint8Array(wasmBuf),
-        new Uint8Array(zkeyBuf),
+        input, new Uint8Array(wasmBuf), new Uint8Array(zkeyBuf),
       )
-
-      // publicSignals = [valid, threshold]
-      if (publicSignals[0] !== '1') {
-        throw new Error(
-          'ZK proof generated but fingerprint is OUT of tolerance — batch fails.'
-        )
-      }
 
       const proofData = { proof, publicSignals }
       setZkProof(proofData)
@@ -200,21 +192,21 @@ export function useLabVerification() {
       return proofData
     } catch (err) {
       setError(`Proof generation failed: ${err.message}`)
-      setStep(LAB_STEPS.IDLE)
+      setStep(LAB_STEPS.ZK_PROVING)
       throw err
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [tokenData])
 
   // ── Step 4: Submit to chain via Pimlico gasless tx ─────────────────────────
-  const submitVerification = useCallback(async (tokenId, proof, publicSignals) => {
+  const submitVerification = useCallback(async (tokenId, proof, aiAttestation) => {
     setStep(LAB_STEPS.SUBMITTING)
     setError(null)
     setLoading(true)
 
     try {
-      let wallet = wallets.find(w => w.walletClientType === 'privy') || wallets[0]
+      let wallet = pickTxWallet(wallets)
       if (!wallet) {
         if (createWallet) {
           await createWallet()
@@ -225,21 +217,12 @@ export function useLabVerification() {
       }
 
       const { smartClient } = await createSmartClient(wallet)
-
-      // Format proof for Solidity: swap G2 coordinates
-      const f = x => BigInt(x)
-      const a = [f(proof.pi_a[0]), f(proof.pi_a[1])]
-      const b = [
-        [f(proof.pi_b[0][1]), f(proof.pi_b[0][0])],
-        [f(proof.pi_b[1][1]), f(proof.pi_b[1][0])],
-      ]
-      const c = [f(proof.pi_c[0]), f(proof.pi_c[1])]
-      const pubSignals = publicSignals.slice(0, 2).map(f) // [valid, threshold]
+      const { a, b, c } = formatProofForContract(proof)
 
       const calldata = encodeFunctionData({
         abi: CONTRACT_ABI,
         functionName: 'verifyProof',
-        args: [BigInt(tokenId), a, b, c, pubSignals],
+        args: [BigInt(tokenId), a, b, c, aiAttestation],
       })
 
       const txHash = await smartClient.sendUserOperation({
@@ -251,35 +234,19 @@ export function useLabVerification() {
       })
 
       const receipt = await smartClient.waitForUserOperationReceipt({ hash: txHash })
+      if (!receipt.success) throw new Error(`verifyProof reverted (${receipt.receipt.transactionHash})`)
 
       setTxReceipt(receipt)
       setStep(LAB_STEPS.DONE)
       return receipt
     } catch (err) {
-      setError(`On-chain verification failed: ${err.message}`)
+      setError(`On-chain verification failed: ${err.shortMessage || err.message}`)
       setStep(LAB_STEPS.SUBMITTING)
       throw err
     } finally {
       setLoading(false)
     }
-  }, [wallets])
-
-  // ── Full pipeline orchestrator ─────────────────────────────────────────────
-  const runFullPipeline = useCallback(async (tokenId, peaks, reagent, threshold = 10) => {
-    try {
-      // Step 1
-      await fetchToken(tokenId)
-      // Step 2 — reagent = { smiles, observedRt }
-      const aiRes = await runAiCheck(reagent)
-      if (!aiRes.genuine) return aiRes // stops here if anomaly
-      // Step 3
-      const proofData = await generateProof(peaks, threshold)
-      // Step 4
-      await submitVerification(tokenId, proofData.proof, proofData.publicSignals)
-    } catch (err) {
-      console.error('Lab pipeline error:', err)
-    }
-  }, [fetchToken, runAiCheck, generateProof, submitVerification])
+  }, [wallets, createWallet])
 
   // ── Reset ──────────────────────────────────────────────────────────────────
   const reset = useCallback(() => {
@@ -306,7 +273,6 @@ export function useLabVerification() {
     runAiCheck,
     generateProof,
     submitVerification,
-    runFullPipeline,
     reset,
   }
 }

@@ -28,12 +28,11 @@ A decentralized reagent provenance system built on Polygon PoS. Each biochemical
 git clone https://github.com/HarshP295/BioToken.git
 cd BioToken
 
-# 2. Install dependencies
+# 2. Install dependencies (the frontend install also provides circomlibjs for tests and scripts)
 npm install
+cd frontend && npm install && cd ..
 
-# 3. Configure environment
-cp .env.example .env
-#    Edit .env and fill in your PRIVATE_KEY and AMOY_RPC_URL
+# 3. Configure environment: create .env and frontend/.env (variables below)
 
 # 4. Compile contracts
 npx hardhat compile
@@ -41,9 +40,11 @@ npx hardhat compile
 # 5. Run tests (local Hardhat network)
 npx hardhat test
 
-# 6. Deploy to Polygon Amoy testnet
+# 6. Deploy HplcVerifier + BioToken to Polygon Amoy (updates both .env files)
 npx hardhat run scripts/deploy.js --network amoy
 ```
+
+Current Amoy deployment: BioToken `0x59B06aE32e732bb3D91b0F301af6791A0C98b202`, HplcVerifier `0xA44699310aE4599cF43C1dBe68B227f3cb4E16DA` ([deployments/amoy.json](deployments/amoy.json)). The circuit build and trusted setup are described in [circuits/SETUP.md](circuits/SETUP.md).
 
 ## AI Verification Service
 
@@ -62,19 +63,30 @@ python ai/reproduce_paper_metrics.py # re-evaluates the frozen models (paper Tab
 python ai/layer2_validation_logged.py
 python ai/reportrt_validation_fix.py path/to/RepoRT   # Layer 1, needs a RepoRT clone
 
-npx hardhat run scripts/integrate.js # full lifecycle incl. AI → ZK proof → on-chain verify
+npx hardhat run scripts/integrate.js # full lifecycle on a local chain: mint → AI → ZK proof → verify → consume
+cd frontend && node scripts/e2e_amoy.mjs  # the same lifecycle on Amoy, gasless via Pimlico
 ```
+
+For a layer-by-layer description of the whole system, verification results, the live Amoy run, findings, and the sample HPLC files to upload on the Mint and Lab pages (`samples/hplc/`), see [docs/SYSTEM_VERIFICATION.md](docs/SYSTEM_VERIFICATION.md).
 
 `ai/models/` holds the models the paper's numbers come from; `src/features.py` emits features in the column order they were fitted on and `src/verifier.py` refuses to load if that ever drifts. See `AI_VALIDATION_RECONCILIATION.md` for verified results.
 
 ## Environment Variables
 
-| Variable           | Description                       |
-| ------------------ | --------------------------------- |
-| `PRIVATE_KEY`      | Deployer wallet private key       |
-| `AMOY_RPC_URL`     | Polygon Amoy JSON-RPC endpoint    |
-| `PINATA_API_KEY`   | Pinata API key for IPFS uploads   |
-| `PINATA_SECRET_KEY` | Pinata secret key                |
+Repo-root `.env` (contracts, scripts, AI service):
+
+| Variable                | Description |
+| ----------------------- | ----------- |
+| `DEPLOYER_PRIVATE_KEY`  | Admin/deployer key; also signs role grants from the API |
+| `AMOY_RPC_URL`          | Polygon Amoy JSON-RPC endpoint (used by Hardhat and the API) |
+| `VITE_CONTRACT_ADDRESS` | Deployed BioToken (set by `scripts/deploy.js`) |
+| `AI_ORACLE_PRIVATE_KEY` | Signs GENUINE AI verdicts; its address holds `AI_ORACLE_ROLE` |
+| `ADMIN_API_TOKEN`       | `X-Admin-Token` for `/admin/*` role approval endpoints |
+| `ROLE_AUTO_APPROVE`     | Optional; `true` grants roles without admin approval (demo only) |
+| `MONGODB_URI`           | User/role records |
+| `PINATA_API_KEY`, `PINATA_SECRET_KEY` | Pinata IPFS keys |
+
+`frontend/.env`: `VITE_PRIVY_APP_ID`, `VITE_PIMLICO_API_KEY`, `VITE_PIMLICO_POLICY_ID`, `VITE_CONTRACT_ADDRESS`, `VITE_AI_API_URL`, `VITE_AMOY_RPC_URL`.
 
 ## Branch Strategy
 

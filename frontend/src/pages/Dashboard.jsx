@@ -379,12 +379,11 @@ export default function Dashboard({ contract }) {
       setLoading(true); setError('');
       const c = await getActiveContract();
       const fetched = [];
-      for (let i = 0; i < 30; i++) {
-        try {
-          const owner = await c.ownerOf(i);
-          const data  = await c.getTokenData(i);
-          fetched.push({ id: i, owner, batchId: data.batchId, expiry: Number(data.expiry), status: Number(data.status) });
-        } catch { break; }
+      const total = Number(await c.totalMinted());
+      for (let i = 0; i < total; i++) {
+        const owner = await c.ownerOf(i);
+        const data  = await c.getTokenData(i);
+        fetched.push({ id: i, owner, batchId: data.batchId, expiry: Number(data.expiry), status: Number(data.status) });
       }
       setTokens(fetched.reverse());
     } catch (err) {

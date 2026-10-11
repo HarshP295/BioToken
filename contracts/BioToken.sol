@@ -3,41 +3,53 @@ pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 /**
  * @title IHplcVerifier
- * @notice Interface to the snarkjs Groth16 verifier for the
- *         FingerprintMatch(10) circuit.
- *         Public signals: [valid, threshold]
+ * @notice snarkjs Groth16 verifier for the FingerprintMatch(10) circuit.
+ *         Public signals: [commitment, tolerance, tokenId]
  */
 interface IHplcVerifier {
     function verifyProof(
         uint[2]    calldata a,
         uint[2][2] calldata b,
         uint[2]    calldata c,
-        uint[2]    calldata pubSignals
+        uint[3]    calldata pubSignals
     ) external view returns (bool);
 }
 
 /**
  * @title BioToken
- * @notice ERC-721 NFT representing a biochemical reagent batch.
- *         Tracks chain-of-custody across five lifecycle stages and
- *         supports ZK-based authenticity verification.
+ * @notice ERC-721 NFT representing a biochemical reagent batch, tracked
+ *         MINTED → IN_TRANSIT → RECEIVED → VERIFIED → CONSUMED.
  *
- *  Week 4 change: verifyProof() stub replaced with a real call to
- *  HplcVerifier (Groth16 on-chain verifier exported from snarkjs).
+ *  At mint the manufacturer stores a Poseidon commitment to the batch's
+ *  Gold Standard HPLC fingerprint and the per-peak tolerance. To verify,
+ *  the lab that holds the token submits
+ *    - a Groth16 proof that its measured peaks are within that tolerance of
+ *      the committed fingerprint, for this token id (the contract supplies
+ *      all public signals from storage), and
+ *    - a GENUINE verdict signed by the AI oracle for this token's reagent.
+ *
+ *  Tokens move only through the lifecycle functions; plain ERC-721
+ *  transfers are disabled.
  */
 contract BioToken is ERC721, AccessControl {
     // ──────────────────────────────────────────────
     //  Roles
     // ──────────────────────────────────────────────
     bytes32 public constant MANUFACTURER_ROLE = keccak256("MANUFACTURER_ROLE");
-    bytes32 public constant LOGISTICS_ROLE    = keccak256("LOGISTICS_ROLE");
     bytes32 public constant LAB_ROLE          = keccak256("LAB_ROLE");
+    bytes32 public constant AI_ORACLE_ROLE    = keccak256("AI_ORACLE_ROLE");
+
+    /// @dev BN254 scalar field; the commitment is a field element.
+    uint256 private constant SNARK_SCALAR_FIELD =
+        21888242871839275222246405745257275088548364400416034343698204186575808495617;
 
     // ──────────────────────────────────────────────
-    //  Enums
+    //  Types and state
     // ──────────────────────────────────────────────
     enum TokenStatus {
         MINTED,
@@ -47,29 +59,24 @@ contract BioToken is ERC721, AccessControl {
         CONSUMED
     }
 
-    // ──────────────────────────────────────────────
-    //  Structs
-    // ──────────────────────────────────────────────
     struct TokenData {
         string      batchId;
-        uint256     expiry;           // Unix timestamp
-        bytes32     verificationKey;  // on-chain vk commitment (bytes32)
+        string      reagentSmiles;          // public reagent identity, checked by the AI oracle
+        uint256     expiry;                 // Unix timestamp
+        bytes32     fingerprintCommitment;  // Poseidon(goldPeaks[10], salt)
+        uint8       tolerance;              // max |lab peak − gold peak|, 0–255 scale
         TokenStatus status;
-        bytes       marketplaceSig;   // co-signature from marketplace consensus
+        bytes       marketplaceSig;         // co-signature from marketplace consensus
     }
 
-    // ──────────────────────────────────────────────
-    //  State
-    // ──────────────────────────────────────────────
-    uint256 private _nextTokenId;
-    mapping(uint256 => TokenData) private _tokenData;
-
-    /// @notice Address of the deployed HplcVerifier contract.
-    ///         Set once in constructor; immutable after deployment.
     IHplcVerifier public immutable verifier;
 
+    uint256 private _nextTokenId;
+    mapping(uint256 => TokenData) private _tokenData;
+    bool private _custodyTransfer;
+
     // ──────────────────────────────────────────────
-    //  Events
+    //  Events and errors
     // ──────────────────────────────────────────────
     event TokenMinted(uint256 indexed tokenId, string batchId, address indexed manufacturer);
     event CustodyTransferred(uint256 indexed tokenId, address indexed from, address indexed to);
@@ -77,55 +84,72 @@ contract BioToken is ERC721, AccessControl {
     event TokenVerified(uint256 indexed tokenId, address indexed lab);
     event TokenConsumed(uint256 indexed tokenId);
 
-    // ──────────────────────────────────────────────
-    //  Errors
-    // ──────────────────────────────────────────────
-    error TokenAlreadyConsumed(uint256 tokenId);
     error InvalidStatusTransition(uint256 tokenId, TokenStatus current, TokenStatus expected);
+    error NotTokenHolder(uint256 tokenId, address caller);
+    error RecipientNotLab(address recipient);
+    error InvalidCommitment();
+    error InvalidExpiry();
+    error EmptyReagent();
+    error ReagentExpired(uint256 tokenId);
+    error AiAttestationInvalid(uint256 tokenId, address signer);
     error ZKProofInvalid(uint256 tokenId);
+    error TransferNotAllowed();
 
     // ──────────────────────────────────────────────
     //  Constructor
     // ──────────────────────────────────────────────
     /**
-     * @param verifierAddress Address of the deployed HplcVerifier contract.
+     * @param verifierAddress Deployed HplcVerifier.
+     * @param aiOracle        Address whose signatures count as AI verdicts.
      */
-    constructor(address verifierAddress) ERC721("BioToken", "BIO") {
+    constructor(address verifierAddress, address aiOracle) ERC721("BioToken", "BIO") {
         require(verifierAddress != address(0), "BioToken: zero verifier address");
+        require(aiOracle != address(0), "BioToken: zero AI oracle address");
         verifier = IHplcVerifier(verifierAddress);
 
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(MANUFACTURER_ROLE, msg.sender);
+        _grantRole(AI_ORACLE_ROLE, aiOracle);
     }
 
     // ──────────────────────────────────────────────
-    //  Core Functions
+    //  Lifecycle
     // ──────────────────────────────────────────────
 
     /**
-     * @notice Mint a new reagent token.
-     * @param batchId         Human-readable batch identifier
-     * @param expiry          Unix timestamp for reagent expiry
-     * @param vk              Verification key (bytes32) commitment
-     * @param marketplaceSig  Co-signature from marketplace validator
-     * @return tokenId        The id of the newly minted token
+     * @notice Mint a reagent batch to the caller.
+     * @param batchId                Human-readable batch identifier
+     * @param reagentSmiles          SMILES of the reagent (public identity)
+     * @param expiry                 Unix timestamp, must be in the future
+     * @param fingerprintCommitment  Poseidon(goldPeaks[10], salt), a BN254 field element
+     * @param tolerance              Allowed per-peak deviation for the lab's scan
+     * @param marketplaceSig         Co-signature from marketplace validator
      */
     function mintToken(
         string calldata batchId,
+        string calldata reagentSmiles,
         uint256 expiry,
-        bytes32 vk,
+        bytes32 fingerprintCommitment,
+        uint8 tolerance,
         bytes calldata marketplaceSig
-    ) external returns (uint256) {
-        require(hasRole(MANUFACTURER_ROLE, msg.sender), "BioToken: caller lacks MANUFACTURER_ROLE");
+    ) external onlyRole(MANUFACTURER_ROLE) returns (uint256) {
+        if (fingerprintCommitment == bytes32(0) || uint256(fingerprintCommitment) >= SNARK_SCALAR_FIELD) {
+            revert InvalidCommitment();
+        }
+        if (expiry <= block.timestamp) revert InvalidExpiry();
+        if (bytes(reagentSmiles).length == 0) revert EmptyReagent();
+
         uint256 tokenId = _nextTokenId++;
         _safeMint(msg.sender, tokenId);
 
         _tokenData[tokenId] = TokenData({
-            batchId:         batchId,
-            expiry:          expiry,
-            verificationKey: vk,
-            status:          TokenStatus.MINTED,
-            marketplaceSig:  marketplaceSig
+            batchId:               batchId,
+            reagentSmiles:         reagentSmiles,
+            expiry:                expiry,
+            fingerprintCommitment: fingerprintCommitment,
+            tolerance:             tolerance,
+            status:                TokenStatus.MINTED,
+            marketplaceSig:        marketplaceSig
         });
 
         emit TokenMinted(tokenId, batchId, msg.sender);
@@ -133,156 +157,117 @@ contract BioToken is ERC721, AccessControl {
     }
 
     /**
-     * @notice Transfer custody of a token to a new holder (e.g. logistics → lab).
-     *         Updates status to IN_TRANSIT.
-     * @param tokenId   Token to transfer
-     * @param newHolder Address of the new custodian
+     * @notice Ship the batch to a lab. Holder (or an approved operator) only;
+     *         the recipient must hold LAB_ROLE.
      */
-    function transferCustody(
-        uint256 tokenId,
-        address newHolder
-    ) external {
-        _requireNotConsumed(tokenId);
+    function transferCustody(uint256 tokenId, address lab) external {
         _requireStatus(tokenId, TokenStatus.MINTED);
+        address holder = ownerOf(tokenId);
+        if (!_isAuthorized(holder, msg.sender, tokenId)) revert NotTokenHolder(tokenId, msg.sender);
+        if (!hasRole(LAB_ROLE, lab)) revert RecipientNotLab(lab);
 
-        address from = ownerOf(tokenId);
-        _transfer(from, newHolder, tokenId);
         _tokenData[tokenId].status = TokenStatus.IN_TRANSIT;
+        _custodyTransfer = true;
+        _transfer(holder, lab, tokenId);
+        _custodyTransfer = false;
 
-        emit CustodyTransferred(tokenId, from, newHolder);
+        emit CustodyTransferred(tokenId, holder, lab);
     }
 
-    /**
-     * @notice Lab confirms receipt of a reagent shipment.
-     * @param tokenId Token to confirm
-     */
-    function confirmReceipt(uint256 tokenId) external {
-        _requireNotConsumed(tokenId);
+    /// @notice The receiving lab confirms the shipment arrived.
+    function confirmReceipt(uint256 tokenId) external onlyRole(LAB_ROLE) {
+        _requireHolder(tokenId);
         _requireStatus(tokenId, TokenStatus.IN_TRANSIT);
 
         _tokenData[tokenId].status = TokenStatus.RECEIVED;
-
         emit TokenReceived(tokenId, msg.sender);
     }
 
     /**
-     * @notice Verify reagent authenticity via a ZK proof.
-     *
-     *  Week 4 — real Groth16 verification replaces the stub.
-     *
-     *  The caller (lab) submits the proof components and the two
-     *  public signals that the circuit exposes:
-     *    pubSignals[0] = valid     (must equal 1 for approval)
-     *    pubSignals[1] = threshold (the tolerance used during proving)
-     *
-     *  The call is forwarded to the deployed HplcVerifier contract.
-     *  If verification fails the transaction reverts with ZKProofInvalid.
-     *
-     * @param tokenId     Token to verify (must be in RECEIVED state)
-     * @param a           Proof.A  (G1 point)
-     * @param b           Proof.B  (G2 point)
-     * @param c           Proof.C  (G1 point)
-     * @param pubSignals  [valid, threshold]
-     * @return            true on success (reverts on failure)
+     * @notice Verify the batch: AI oracle verdict + ZK fingerprint match.
+     * @param aiAttestation  AI oracle's EIP-191 signature over aiVerdictDigest(tokenId)
      */
     function verifyProof(
         uint256    tokenId,
         uint[2]    calldata a,
         uint[2][2] calldata b,
         uint[2]    calldata c,
-        uint[2]    calldata pubSignals
-    ) external returns (bool) {
-        require(hasRole(LAB_ROLE, msg.sender), "BioToken: caller lacks LAB_ROLE");
-        _requireNotConsumed(tokenId);
+        bytes      calldata aiAttestation
+    ) external onlyRole(LAB_ROLE) returns (bool) {
+        _requireHolder(tokenId);
         _requireStatus(tokenId, TokenStatus.RECEIVED);
+        TokenData storage data = _tokenData[tokenId];
+        if (block.timestamp > data.expiry) revert ReagentExpired(tokenId);
 
-        // ── REAL ZK VERIFICATION (Week 4) ──────────────────────────
-        bool valid = verifier.verifyProof(a, b, c, pubSignals);
-        // ── END REAL ZK VERIFICATION ────────────────────────────────
+        address signer = ECDSA.recover(
+            MessageHashUtils.toEthSignedMessageHash(aiVerdictDigest(tokenId)), aiAttestation
+        );
+        if (!hasRole(AI_ORACLE_ROLE, signer)) revert AiAttestationInvalid(tokenId, signer);
 
-        if (!valid) revert ZKProofInvalid(tokenId);
+        uint[3] memory pubSignals = [uint256(data.fingerprintCommitment), uint256(data.tolerance), tokenId];
+        if (!verifier.verifyProof(a, b, c, pubSignals)) revert ZKProofInvalid(tokenId);
 
-        _tokenData[tokenId].status = TokenStatus.VERIFIED;
-
-        // Transfer ownership to the verifying lab
-        address currentOwner = ownerOf(tokenId);
-        _transfer(currentOwner, msg.sender, tokenId);
-
+        data.status = TokenStatus.VERIFIED;
         emit TokenVerified(tokenId, msg.sender);
         return true;
     }
 
-    /**
-     * @notice Demo-only: mark token as verified without ZK proof.
-     *         Replace with real verifyProof() before production.
-     */
-    function verifyDemo(uint256 tokenId) external {
-        _requireNotConsumed(tokenId);
-        _requireStatus(tokenId, TokenStatus.RECEIVED);
-        _tokenData[tokenId].status = TokenStatus.VERIFIED;
-        emit TokenVerified(tokenId, msg.sender);
-    }
-
-    /**
-     * @notice Grant LAB_ROLE to an address. Admin only.
-     * @param lab Address to grant the role to
-     */
-    function grantLabRole(address lab) external {
-        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "BioToken: admin only");
-        grantRole(LAB_ROLE, lab);
-    }
-
-    /**
-     * @notice Revoke LAB_ROLE from an address. Admin only.
-     * @param lab Address to revoke the role from
-     */
-    function revokeLabRole(address lab) external {
-        require(hasRole(DEFAULT_ADMIN_ROLE, msg.sender), "BioToken: admin only");
-        revokeRole(LAB_ROLE, lab);
-    }
-
-    /**
-     * @notice Mark a verified reagent as consumed. Terminal state.
-     * @param tokenId Token to consume
-     */
+    /// @notice The lab holding a verified batch marks it used. Terminal state.
     function consumeToken(uint256 tokenId) external {
-        _requireNotConsumed(tokenId);
+        _requireHolder(tokenId);
         _requireStatus(tokenId, TokenStatus.VERIFIED);
 
         _tokenData[tokenId].status = TokenStatus.CONSUMED;
-
         emit TokenConsumed(tokenId);
     }
 
+    // ──────────────────────────────────────────────
+    //  Views
+    // ──────────────────────────────────────────────
+
     /**
-     * @notice Return the full on-chain metadata for a token.
-     * @param tokenId Token to query
+     * @notice The digest the AI oracle signs (EIP-191) for a GENUINE verdict.
+     *         Binds the verdict to this chain, this contract, the token and
+     *         the reagent recorded at mint.
      */
+    function aiVerdictDigest(uint256 tokenId) public view returns (bytes32) {
+        return keccak256(abi.encode(
+            "BioToken AI verdict: GENUINE",
+            block.chainid,
+            address(this),
+            tokenId,
+            keccak256(bytes(_tokenData[tokenId].reagentSmiles))
+        ));
+    }
+
     function getTokenData(uint256 tokenId) external view returns (TokenData memory) {
         ownerOf(tokenId); // reverts for non-existent token
         return _tokenData[tokenId];
     }
 
+    /// @notice Number of tokens minted; ids run from 0 to totalMinted() - 1.
+    function totalMinted() external view returns (uint256) {
+        return _nextTokenId;
+    }
+
     // ──────────────────────────────────────────────
-    //  Internal Helpers
+    //  Internal helpers and overrides
     // ──────────────────────────────────────────────
 
-    function _requireNotConsumed(uint256 tokenId) internal view {
-        if (_tokenData[tokenId].status == TokenStatus.CONSUMED) {
-            revert TokenAlreadyConsumed(tokenId);
-        }
+    function _requireHolder(uint256 tokenId) internal view {
+        if (ownerOf(tokenId) != msg.sender) revert NotTokenHolder(tokenId, msg.sender);
     }
 
     function _requireStatus(uint256 tokenId, TokenStatus expected) internal view {
         TokenStatus current = _tokenData[tokenId].status;
-        if (current != expected) {
-            revert InvalidStatusTransition(tokenId, current, expected);
-        }
+        if (current != expected) revert InvalidStatusTransition(tokenId, current, expected);
     }
 
-    // ──────────────────────────────────────────────
-    //  Overrides (ERC-721 × AccessControl)
-    // ──────────────────────────────────────────────
+    /// @dev Only minting and transferCustody may move tokens.
+    function _update(address to, uint256 tokenId, address auth) internal override returns (address) {
+        if (_ownerOf(tokenId) != address(0) && !_custodyTransfer) revert TransferNotAllowed();
+        return super._update(to, tokenId, auth);
+    }
 
     function supportsInterface(bytes4 interfaceId)
         public

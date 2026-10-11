@@ -15,7 +15,7 @@ from scipy.signal import find_peaks
 def extract_peaks(raw_chromatogram: list,
                   time_axis: list,
                   n_peaks: int = 10,
-                  scale_max: int = 1000) -> list:
+                  scale_max: int = 255) -> list:
 
     signal = np.array(raw_chromatogram)
 
@@ -60,11 +60,11 @@ def extract_peaks(raw_chromatogram: list,
 
 def validate_against_gold_standard(lab_peaks: list[int],
                                    gold_peaks: list[int],
-                                   threshold: int = 10) -> bool:
+                                   tolerance: int = 10) -> bool:
     """
-    Pre-validate that all adjacent deltas are within threshold.
-    Mirrors the circuit constraint — catches mismatches before
-    wasting snarkjs computation.
+    Pre-check of the circuit's matching constraint: every lab peak must be
+    within `tolerance` of the Gold Standard peak at the same position
+    (|lab[i] - gold[i]| <= tolerance), with all values in 0-255.
 
     Parameters
     ----------
@@ -72,20 +72,14 @@ def validate_against_gold_standard(lab_peaks: list[int],
         Peaks extracted from the lab's local HPLC scan.
     gold_peaks : list[int]
         Gold Standard peaks received from the manufacturer.
-    threshold : int
-        Maximum allowed absolute difference between any two
-        adjacent peaks (matches what is stored on-chain).
-
-    Returns
-    -------
-    bool
-        True if all adjacent deltas ≤ threshold.
+    tolerance : int
+        Per-peak tolerance stored on-chain at mint.
     """
-    peaks = lab_peaks  # validate the lab's own peaks for circuit compatibility
-    for i in range(len(peaks) - 1):
-        if abs(peaks[i] - peaks[i + 1]) > threshold:
-            return False
-    return True
+    if len(lab_peaks) != len(gold_peaks):
+        return False
+    if any(not 0 <= v <= 255 for v in [*lab_peaks, *gold_peaks, tolerance]):
+        return False
+    return all(abs(lab - gold) <= tolerance for lab, gold in zip(lab_peaks, gold_peaks))
 
 
 def peaks_from_intensities(intensities: list[float],

@@ -3,7 +3,6 @@ import { useState, useEffect } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Send, CheckCircle2, Info, ShieldCheck, Beaker, ShieldAlert, Copy, Check } from 'lucide-react';
 import StatusBadge, { STAGES } from '../components/StatusBadge';
-import { useZKProof } from '../zkp/useZKProof';
 
 import { useAuth } from '../hooks/useAuth';
 import { useRole } from '../hooks/useRole';
@@ -12,17 +11,19 @@ import { ethers } from 'ethers';
 import { AMOY_RPC_URL, CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
 import { useGaslessContract } from '../hooks/useGaslessContract';
 
+// `actor` is the role whose on-chain call advances the stage; BioToken
+// enforces it (holder-only calls, recipient must hold LAB_ROLE).
 const LIFECYCLE = [
-  { id: 0, label: 'Minted',              color: 'var(--chain)',   action: 'transfer', actionLabel: 'Transit to Lab', icon: <Send size={13} /> },
-  { id: 1, label: 'In Transit',          color: 'var(--warning)', action: 'receive',  actionLabel: 'Confirm Receipt', icon: <CheckCircle2 size={13} /> },
-  { id: 2, label: 'Received by Lab',     color: 'var(--text-muted)', action: 'verify', actionLabel: 'Run Verification', icon: <ShieldCheck size={13} />, isLink: true },
-  { id: 3, label: 'Authenticity Verified', color: 'var(--accent)',  action: 'consume', actionLabel: 'Consume Reagent', icon: <Beaker size={13} /> },
+  { id: 0, label: 'Minted',              color: 'var(--chain)',   action: 'transfer', actor: 'manufacturer', actionLabel: 'Ship to Lab', icon: <Send size={13} /> },
+  { id: 1, label: 'In Transit',          color: 'var(--warning)', action: 'receive',  actor: 'lab', actionLabel: 'Confirm Receipt', icon: <CheckCircle2 size={13} /> },
+  { id: 2, label: 'Received by Lab',     color: 'var(--text-muted)', action: 'verify', actor: 'lab', actionLabel: 'Run Verification', icon: <ShieldCheck size={13} />, isLink: true },
+  { id: 3, label: 'Authenticity Verified', color: 'var(--accent)',  action: 'consume', actor: 'lab', actionLabel: 'Consume Reagent', icon: <Beaker size={13} /> },
   { id: 4, label: 'Consumed',            color: 'var(--alert)',    action: null, actionLabel: null },
 ];
 
-// Stages owned by each role
+// Stages shown to each role
 const MANUFACTURER_STAGES = new Set([0, 1]); // Minted, In Transit
-const LAB_STAGES          = new Set([2, 3, 4]); // Received, Verified, Consumed
+const LAB_STAGES          = new Set([1, 2, 3, 4]); // In Transit … Consumed
 
 export default function TokenDetails({ contract }) {
   const [searchParams] = useSearchParams();
@@ -39,14 +40,7 @@ export default function TokenDetails({ contract }) {
   const [actionLoading, setActionLoading] = useState(false);
   const [error,         setError]         = useState('');
   const [copied,        setCopied]        = useState(false);
-
-  // ── ZK proof hook (declarative — runs automatically for verified tokens) ──
-  const { commitment: zkCommitment, isVerified: zkVerified, isLoading: zkLoading } = useZKProof(
-    token?.id,
-    token?.batchId,
-    token?.rawExpiry,
-    token?.status
-  );
+  const [recipient,     setRecipient]     = useState('');   // receiving lab's address
 
   const getActiveContract = async () => {
     let activeContract = contract;
@@ -78,7 +72,9 @@ export default function TokenDetails({ contract }) {
         expiry: new Date(Number(data.expiry) * 1000).toLocaleString(),
         rawExpiry: data.expiry,
         status: Number(data.status),
-        vkHash: data.verificationKey,
+        commitment: data.fingerprintCommitment,
+        tolerance: Number(data.tolerance),
+        reagentSmiles: data.reagentSmiles,
       });
     } catch (err) {
       console.error(err);
@@ -118,12 +114,13 @@ export default function TokenDetails({ contract }) {
       setError('')
 
       if (actionType === 'transfer') {
-        // Transfer custody to the deployer/logistics address
-        // In production this would be the courier's address
-        await sendGaslessTx('transferCustody', [
-          BigInt(tokenId),
-          '0xbb6E66Fb872cFd173d12a402b11316aab72189B4'
-        ])
+        // The lab's address is shown on its Lab Dashboard; it must hold LAB_ROLE.
+        if (!ethers.isAddress(recipient.trim())) {
+          setError('Enter the receiving lab address (shown on the lab\'s dashboard).')
+          setActionLoading(false)
+          return
+        }
+        await sendGaslessTx('transferCustody', [BigInt(tokenId), recipient.trim()])
 
       } else if (actionType === 'receive') {
         await sendGaslessTx('confirmReceipt', [BigInt(tokenId)])
@@ -220,7 +217,7 @@ export default function TokenDetails({ contract }) {
           {/* ── VK Commitment with real Poseidon hash ── */}
           <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
             <div className="form-label" style={{ marginBottom: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              Verification Key Commitment
+              Gold Standard Commitment
               <span
                 style={{
                   position: 'relative',
@@ -228,22 +225,13 @@ export default function TokenDetails({ contract }) {
                   alignItems: 'center',
                   cursor: 'help',
                 }}
-                title="Poseidon hash of reagent fingerprint — Groth16 verified"
+                title="Poseidon commitment to the Gold Standard HPLC fingerprint, stored at mint"
               >
                 <Info size={13} style={{ color: 'var(--text-faint)', opacity: 0.6 }} />
               </span>
             </div>
 
-            {zkLoading ? (
-              <div style={{
-                fontFamily: 'var(--font-mono)', fontSize: '0.76rem', color: 'var(--text-muted)',
-                background: 'var(--surface-alt)', padding: '0.75rem 1rem',
-                borderRadius: 'var(--radius-md)', border: '1px solid var(--border)',
-                fontStyle: 'italic',
-              }}>
-                Generating ZK commitment...
-              </div>
-            ) : (
+            {(
               <div style={{
                 fontFamily: 'var(--font-mono)', fontSize: '0.76rem', color: 'var(--text-muted)',
                 background: 'var(--surface-alt)', padding: '0.75rem 1rem',
@@ -253,13 +241,13 @@ export default function TokenDetails({ contract }) {
                 gap: '0.5rem',
               }}>
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  {zkCommitment || token.vkHash || '0x' + '0'.repeat(64)}
+                  {token.commitment}
                 </span>
                 <button
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    handleCopyCommitment(zkCommitment || token.vkHash || '');
+                    handleCopyCommitment(token.commitment);
                   }}
                   style={{
                     background: 'none', border: 'none', cursor: 'pointer',
@@ -276,7 +264,15 @@ export default function TokenDetails({ contract }) {
               </div>
             )}
 
-            {zkVerified && !zkLoading && (
+            <div style={{
+              marginTop: '0.5rem',
+              fontFamily: 'var(--font-mono)', fontSize: '0.68rem',
+              color: 'var(--text-muted)', wordBreak: 'break-all',
+            }}>
+              Tolerance ±{token.tolerance} · Reagent {token.reagentSmiles}
+            </div>
+
+            {statusNum >= 3 && (
               <div style={{
                 display: 'flex', alignItems: 'center', gap: '0.4rem',
                 marginTop: '0.5rem',
@@ -284,7 +280,7 @@ export default function TokenDetails({ contract }) {
                 color: 'var(--accent-dim)',
               }}>
                 <ShieldCheck size={13} />
-                Groth16 proof verified
+                Groth16 proof and AI verdict verified on-chain
               </div>
             )}
           </div>
@@ -310,12 +306,7 @@ export default function TokenDetails({ contract }) {
                 const pending = statusNum < stage.id;
 
                 // Determine whether the action button should be shown for this role
-                const canAct =
-                  current &&
-                  stage.action &&
-                  (role === 'manufacturer' ? MANUFACTURER_STAGES.has(stage.id)
-                   : role === 'lab'        ? LAB_STAGES.has(stage.id)
-                   : false);
+                const canAct = current && stage.action && role === stage.actor;
 
                 return (
                   <div key={stage.id} style={{
@@ -346,6 +337,19 @@ export default function TokenDetails({ contract }) {
                       </div>
                     </div>
 
+                    {canAct && stage.action === 'transfer' && (
+                      <input
+                        type="text"
+                        value={recipient}
+                        onChange={e => setRecipient(e.target.value)}
+                        placeholder="Receiving lab address 0x…"
+                        style={{
+                          flex: '1 1 260px', padding: '0.4rem 0.75rem',
+                          fontFamily: 'var(--font-mono)', fontSize: '0.76rem',
+                          border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
+                        }}
+                      />
+                    )}
                     {canAct && (
                       stage.isLink
                         ? (
