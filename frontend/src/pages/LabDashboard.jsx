@@ -668,6 +668,9 @@ export default function LabDashboard() {
   const [labAddress,       setLabAddress]       = useState('');      // smart account that holds tokens
 
   // The address manufacturers ship to: the smart account behind gasless txs.
+  // Keyed on the address, not the wallets array: getSmartAccountAddress calls
+  // switchChain, which hands back a new wallets array and would re-run this forever.
+  const txWalletAddress = pickTxWallet(wallets)?.address;
   useEffect(() => {
     const wallet = pickTxWallet(wallets);
     if (!wallet) return;
@@ -676,7 +679,7 @@ export default function LabDashboard() {
       .then(addr => { if (!cancelled) setLabAddress(addr); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [wallets]);
+  }, [txWalletAddress]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Lab scan vs Gold Standard, peak by peak (what the circuit will check).
   let comparison = null, comparisonError = null;

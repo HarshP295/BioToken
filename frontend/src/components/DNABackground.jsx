@@ -6,6 +6,8 @@ export default function DNABackground() {
   const mountRef = useRef(null);
 
   useEffect(() => {
+    const mountEl = mountRef.current;
+    let disposed = false;
     let animId;
     let THREE;
     let renderer, scene, camera, clock;
@@ -152,6 +154,7 @@ export default function DNABackground() {
       script.id     = 'three-cdn';
       script.src    = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
       script.onload = () => {
+        if (disposed) return;
         THREE = window.THREE;
         buildScene(THREE);
         animate();
@@ -162,10 +165,15 @@ export default function DNABackground() {
     window.addEventListener('resize', onResize);
     return () => {
       window.removeEventListener('resize', onResize);
+      disposed = true;
       cancelAnimationFrame(animId);
-      if (renderer && mountRef.current) {
-        try { mountRef.current.removeChild(renderer.domElement); } catch (_) {}
+      // mountRef.current is already null here; use the element captured above.
+      // forceContextLoss frees the WebGL context, which dispose() alone does not,
+      // so repeated mounts don't exhaust the browser's context limit.
+      if (renderer) {
+        try { mountEl?.removeChild(renderer.domElement); } catch (_) {}
         renderer.dispose();
+        renderer.forceContextLoss();
       }
     };
   }, []);
