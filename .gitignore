@@ -23,3 +23,7 @@ __pycache__/
 # Circuit build intermediates and compiler binary
 circuits/circom.exe
 *.wtns
+
+# Local-only: demo video and its sources, editor/agent tooling
+demo-video/
+.claude/

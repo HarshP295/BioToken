@@ -1,0 +1,101 @@
+{
+  "network": "amoy",
+  "contract": "0x59B06aE32e732bb3D91b0F301af6791A0C98b202",
+  "verifier": "0xA44699310aE4599cF43C1dBe68B227f3cb4E16DA",
+  "startedAt": "2026-10-24T14:26:16.846Z",
+  "steps": [
+    {
+      "step": "Manufacturer: chose \"manufacturer\", signed registration → auto-approved → MANUFACTURER_ROLE on smart account",
+      "tx": "0x4e388ce1e5a276f046aec0bd31f071522a9ac36dd6fd4e01affd74d9ae0d6739"
+    },
+    {
+      "step": "Lab: chose \"lab\", signed registration → auto-approved → LAB_ROLE on smart account",
+      "tx": "0xc64bf6f4b8f4b5e93ff5097457776970c0cee0b10eeba6ad6281b98cf5955de6"
+    },
+    {
+      "step": "Mint E2E-SMRT-53193463-1792851976846 (consensus PASS) → token #6",
+      "tx": "0xc8c8e162b2bca14d1555fb55561a34812d0ec9aaa711ff04f4ad68a6dfa8ba78",
+      "info": "commitment 0x21ab7817805c…"
+    },
+    {
+      "step": "Ship token #6 to lab smart account",
+      "tx": "0xaab057efe84d662d65ccffd9b13b49a0853d74774a77b13527ea30cc3b364cfc"
+    },
+    {
+      "step": "Lab confirms receipt of token #6",
+      "tx": "0x4d0d90eee2ef6c4840d8672108d1a15b87e85a88c508042d1fcac8e36a88227c"
+    },
+    {
+      "step": "AI pre-screen token #6: GENUINE",
+      "info": "RT 603.4 s vs predicted 607.3 s, p(anomaly)=0.0153, signed=true"
+    },
+    {
+      "step": "ZK proof for token #6",
+      "info": "max |lab−gold| 2 ≤ 10, 733 ms"
+    },
+    {
+      "step": "verifyProof token #6 → VERIFIED",
+      "tx": "0xa4c6beb1ecfbd486c1525333041f6ebe9150a5806e208269de2f0ba87e5a5467"
+    },
+    {
+      "step": "consumeToken token #6 → CONSUMED",
+      "tx": "0xac0e89e2c18eb3d7bc8612dd7b86bd7f92037994985d4b38d8528c0c869a59e2"
+    },
+    {
+      "step": "Mint E2E-CAF-TAMPERED-1792851976846 (consensus PASS) → token #7",
+      "tx": "0x1f2cc034da3e3159671912a968b41e48a45787d04629bf947368db03dc0081a0",
+      "info": "commitment 0x1d64d53ae0da…"
+    },
+    {
+      "step": "Ship token #7 to lab smart account",
+      "tx": "0x1a7c64fcc5bcafd3003f80e14eb9f0c4ee178d842b12947f22492f5691c0b8f9"
+    },
+    {
+      "step": "Lab confirms receipt of token #7",
+      "tx": "0x5b3531593c8a02942b583e78c26dc213c71f2c9e6edc7c5f1a40f34f737eefa7"
+    },
+    {
+      "step": "AI pre-screen token #7: GENUINE",
+      "info": "RT 636.2 s vs predicted 636.2 s, p(anomaly)=0.0120, signed=true"
+    },
+    {
+      "step": "No ZK proof exists for token #7",
+      "info": "max |lab−gold| 33 > 10"
+    },
+    {
+      "step": "Replaying token #6's proof on token #7",
+      "info": "reverts with ZKProofInvalid"
+    },
+    {
+      "step": "AI verdict signed by the lab instead of the oracle (token #7)",
+      "info": "reverts with AiAttestationInvalid"
+    },
+    {
+      "step": "Manufacturer tries to confirm the lab's receipt",
+      "info": "reverts with AccessControlUnauthorizedAccount"
+    },
+    {
+      "step": "Lab tries a plain ERC-721 transfer",
+      "info": "reverts with TransferNotAllowed"
+    },
+    {
+      "step": "Lab tries to consume the unverified batch",
+      "info": "reverts with InvalidStatusTransition"
+    },
+    {
+      "step": "Token #7 stays RECEIVED"
+    }
+  ],
+  "actors": {
+    "Manufacturer": {
+      "owner": "0x37E68d035d07B9b6A1Fe1b78Ff59F3E32e184de8",
+      "smartAccount": "0x1Eb6B808e17E373493013080488C8d0988Dd714A"
+    },
+    "Lab": {
+      "owner": "0x5D22e6178fAd2b01919c6E0853b5E6F609CFd698",
+      "smartAccount": "0xA3960fc18e6d51c8d4d9CB22545682934E4dBa51"
+    }
+  },
+  "finishedAt": "2026-10-24T14:27:27.873Z",
+  "result": "PASS"
+}
