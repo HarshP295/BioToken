@@ -1,7 +1,7 @@
 import { usePrivy, useWallets } from '@privy-io/react-auth'
 
 export function useAuth() {
-  const { login, logout, authenticated, user, ready, createWallet } = usePrivy()
+  const { login, logout, authenticated, user, ready, createWallet, connectWallet } = usePrivy()
   const { wallets } = useWallets()
 
   // The embedded wallet (or connected MetaMask — whichever is first)
@@ -16,5 +16,5 @@ export function useAuth() {
     return new ethers.BrowserProvider(provider).getSigner()
   }
 
-  return { login, logout, authenticated, user, ready, wallet, getAddress, getSigner, createWallet }
+  return { login, logout, authenticated, user, ready, wallet, getAddress, getSigner, createWallet, connectWallet }
 }

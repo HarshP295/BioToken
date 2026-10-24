@@ -26,8 +26,9 @@ const MANUFACTURER_STAGES = new Set([0, 1]); // Minted, In Transit
 const LAB_STAGES          = new Set([1, 2, 3, 4]); // In Transit … Consumed
 
 export default function TokenDetails({ contract }) {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const tokenId = searchParams.get('id');
+  const [lookupId, setLookupId] = useState('');
 
   const { ready, authenticated, user, createWallet } = useAuth();
   const { role } = useRole();
@@ -145,6 +146,34 @@ export default function TokenDetails({ contract }) {
     } finally {
       setActionLoading(false)
     }
+  }
+
+  // No token chosen yet (the navbar "Lookup" link): ask for an ID instead of
+  // waiting on a load that never starts.
+  if (!tokenId) {
+    const submitLookup = (e) => {
+      e.preventDefault();
+      const id = lookupId.trim();
+      if (/^\d+$/.test(id)) setSearchParams({ id });
+    };
+    return (
+      <div className="page-content" style={{ textAlign: 'center', paddingTop: '5rem' }}>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: '1.6rem', marginBottom: '1.25rem' }}>Look up a token</h2>
+        <form onSubmit={submitLookup} style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+          <input
+            className="form-input"
+            inputMode="numeric"
+            placeholder="Token ID, e.g. 3"
+            value={lookupId}
+            onChange={(e) => setLookupId(e.target.value)}
+            style={{ maxWidth: 220 }}
+          />
+          <button type="submit" className="btn btn-primary" disabled={!/^\d+$/.test(lookupId.trim())}>
+            Look up
+          </button>
+        </form>
+      </div>
+    );
   }
 
   if (loading) {

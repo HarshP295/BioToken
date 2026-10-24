@@ -1,181 +1,244 @@
 // frontend/src/App.jsx
+import { lazy, Suspense, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import LandingPage from './pages/LandingPage';
-import Dashboard from './pages/Dashboard';
-import LabDashboard from './pages/LabDashboard';
-import MintToken from './pages/MintToken';
-import VerifyToken from './pages/VerifyToken';
-
-import TokenDetails from './pages/TokenDetails';
-import RoleSelection from './pages/RoleSelection';
-import { useContract } from './hooks/useContract';
 import { useRole } from './hooks/useRole';
 import { useAuth } from './hooks/useAuth';
-import { Info, Loader2, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Loader2, RefreshCw, Repeat, LogOut, Wallet } from 'lucide-react';
+
+// Pages behind sign-in are loaded on demand, so the landing page (and the
+// wallet start-up) does not wait for the dashboards' code.
+const Dashboard     = lazy(() => import('./pages/Dashboard'));
+const LabDashboard  = lazy(() => import('./pages/LabDashboard'));
+const MintToken     = lazy(() => import('./pages/MintToken'));
+const VerifyToken   = lazy(() => import('./pages/VerifyToken'));
+const TokenDetails  = lazy(() => import('./pages/TokenDetails'));
+const RoleSelection = lazy(() => import('./pages/RoleSelection'));
+
+function Spinner({ label, hint }) {
+  return (
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center',
+      gap: '1.25rem', padding: '2rem', textAlign: 'center',
+    }}>
+      <Loader2 size={36} color="#00C896" style={{ animation: 'spin 1s linear infinite' }} />
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: '0.85rem', color: '#6B7280' }}>
+        {label}
+      </div>
+      {hint && (
+        <p style={{ color: '#9CA3AF', fontSize: '0.82rem', maxWidth: 420, lineHeight: 1.6 }}>{hint}</p>
+      )}
+    </div>
+  );
+}
+
+function StatusScreen({ icon, title, children, actions }) {
+  return (
+    <div style={{
+      minHeight: '100vh', display: 'flex', flexDirection: 'column',
+      alignItems: 'center', justifyContent: 'center', gap: '1rem',
+      padding: '2rem', textAlign: 'center',
+    }}>
+      {icon}
+      <h1 style={{ fontFamily: "'Libre Baskerville', serif", color: '#0d1f1a', fontSize: '1.6rem' }}>{title}</h1>
+      <div style={{ color: '#6B7280', maxWidth: 520, lineHeight: 1.6 }}>{children}</div>
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+        {actions}
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
+  const { authenticated, ready, logout, user, createWallet, connectWallet } = useAuth();
   const {
-    contract,
-    account,
-    isConnecting,
-    error,
-    isWrongNetwork,
-    connectWallet
-  } = useContract();
-
-  const { authenticated, ready } = useAuth();
-  const {
+    status,
     role,
+    pendingRole,
+    awaitingApproval,
     needsRoleSelection,
+    choosingRole,
+    slow,
+    loadError,
     isRegistering,
     registerError,
-    roleLoading,
     selectRole,
-    pendingRole,
-    rolePendingOnChain,
-    awaitingApproval,
     retryRoleGrant,
+    refresh,
+    changeRole,
+    cancelChangeRole,
   } = useRole();
+  const [walletActionError, setWalletActionError] = useState(null);
 
-  // Show role selection after Privy auth if no role is persisted
-  const showRoleSelection = ready && authenticated && needsRoleSelection;
+  const signedIn = ready && authenticated;
+  const showRoleSelection = signedIn && needsRoleSelection;
+  const showGate = signedIn && !showRoleSelection
+    && ['waiting-wallet', 'no-wallet', 'checking', 'pending', 'error'].includes(status);
+  const showApp = !showRoleSelection && !showGate;
 
-  // Still loading the wallet address from Privy — show a brief spinner
-  const showRoleLoading = ready && authenticated && roleLoading && !needsRoleSelection;
-  const showRolePending = ready && authenticated && rolePendingOnChain && !roleLoading;
+  const handleCreateWallet = async () => {
+    setWalletActionError(null);
+    try {
+      await createWallet();
+      refresh();
+    } catch (err) {
+      setWalletActionError(err?.message || 'Could not create a wallet');
+    }
+  };
+
+  const signOutButton = (
+    <button type="button" onClick={logout} className="btn btn-outline">
+      <LogOut size={16} /> Sign out
+    </button>
+  );
+  const chooseRoleButton = (
+    <button type="button" onClick={changeRole} className="btn btn-outline" disabled={isRegistering}>
+      <Repeat size={16} /> Choose a different role
+    </button>
+  );
+
+  let gate = null;
+  if (showGate) {
+    if (status === 'waiting-wallet') {
+      gate = <Spinner label="Setting up your wallet…" />;
+    } else if (status === 'checking') {
+      gate = (
+        <Spinner
+          label="Loading your account…"
+          hint={slow ? 'The BioToken server is waking up. On free hosting this can take up to a minute after a quiet period.' : null}
+        />
+      );
+    } else if (status === 'no-wallet') {
+      const hasWallet = Boolean(user?.wallet);
+      const isEmbedded = user?.wallet?.walletClientType === 'privy';
+      gate = (
+        <StatusScreen
+          icon={<Wallet size={36} color="#F59E0B" />}
+          title="Your wallet did not load"
+          actions={<>
+            {!hasWallet && (
+              <button type="button" onClick={handleCreateWallet} className="btn btn-primary">
+                <Wallet size={16} /> Create wallet
+              </button>
+            )}
+            {hasWallet && !isEmbedded && (
+              <button type="button" onClick={() => connectWallet()} className="btn btn-primary">
+                <Wallet size={16} /> Reconnect wallet
+              </button>
+            )}
+            <button type="button" onClick={() => window.location.reload()} className={hasWallet && isEmbedded ? 'btn btn-primary' : 'btn btn-outline'}>
+              <RefreshCw size={16} /> Reload page
+            </button>
+            {signOutButton}
+          </>}
+        >
+          {!hasWallet
+            ? 'This account has no wallet yet. Create one to continue.'
+            : isEmbedded
+              ? 'Your BioToken wallet is taking too long to start. Reloading the page usually fixes this.'
+              : 'Your external wallet is locked or disconnected. Unlock it and reconnect.'}
+          {walletActionError && (
+            <div className="alert-banner alert-banner--error" style={{ marginTop: '1rem' }}>{walletActionError}</div>
+          )}
+        </StatusScreen>
+      );
+    } else if (status === 'error') {
+      gate = (
+        <StatusScreen
+          icon={<AlertTriangle size={36} color="#FF4D4D" />}
+          title="Could not load your account"
+          actions={<>
+            <button type="button" onClick={refresh} className="btn btn-primary">
+              <RefreshCw size={16} /> Try again
+            </button>
+            <button type="button" onClick={changeRole} className="btn btn-outline">
+              <Repeat size={16} /> Choose a role
+            </button>
+            {signOutButton}
+          </>}
+        >
+          {loadError}
+        </StatusScreen>
+      );
+    } else if (status === 'pending') {
+      gate = (
+        <StatusScreen
+          icon={<Loader2 size={36} color="#00C896" style={{ animation: 'spin 1s linear infinite' }} />}
+          title={awaitingApproval ? 'Role registration awaiting approval' : 'Role registration pending on-chain confirmation'}
+          actions={<>
+            <button type="button" onClick={retryRoleGrant} disabled={isRegistering} className="btn btn-primary">
+              <RefreshCw size={16} />
+              {isRegistering ? 'Checking…' : awaitingApproval ? 'Check again' : 'Retry role grant'}
+            </button>
+            {chooseRoleButton}
+            {signOutButton}
+          </>}
+        >
+          {awaitingApproval
+            ? `Your ${pendingRole} registration was received. An administrator must approve it before the role is granted on-chain; check again afterwards.`
+            : `Your ${pendingRole} account is registered, but its smart-contract role is not active on the current contract yet.`}
+          {registerError && (
+            <div className="alert-banner alert-banner--error" style={{ marginTop: '1rem' }}>{registerError}</div>
+          )}
+        </StatusScreen>
+      );
+    }
+  }
 
   return (
     <BrowserRouter>
       <div className="app-layout">
-        {/* Hide navbar during role selection and loading */}
-        {!showRoleSelection && !showRoleLoading && !showRolePending && (
-          <Navbar
-            account={account}
-            connectWallet={connectWallet}
-            isConnecting={isConnecting}
-          />
-        )}
-
-        {/* Global alert banners */}
-        {!showRoleSelection && !showRoleLoading && !showRolePending && (error || isWrongNetwork) && (
-          <div style={{ padding: '0 1.5rem', maxWidth: 1220, margin: '1rem auto 0' }}>
-            {error && !isWrongNetwork && (
-              <div className="alert-banner alert-banner--error">
-                <Info size={16} style={{ flexShrink: 0 }} />
-                <div>
-                  <strong>Connection Error</strong>
-                  <div style={{ marginTop: '0.2rem', fontSize: '0.82rem' }}>{error}</div>
-                </div>
-              </div>
-            )}
-            {isWrongNetwork && (
-              <div className="alert-banner alert-banner--warning">
-                <Info size={16} style={{ flexShrink: 0 }} />
-                <div>
-                  <strong>Wrong Network</strong>
-                  <div style={{ marginTop: '0.2rem', fontSize: '0.82rem' }}>
-                    Please switch your wallet to the configured network to interact with BioToken.
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        {showApp && <Navbar />}
 
         <main className="main-content">
-          {/* Loading spinner while waiting for Privy wallet */}
-          {showRoleLoading && (
-            <div style={{
-              minHeight: '100vh',
-              display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center',
-              gap: '1.25rem',
-            }}>
-              <Loader2
-                size={36}
-                color="#00C896"
-                style={{ animation: 'spin 1s linear infinite' }}
+          <Suspense fallback={<Spinner label="Loading…" />}>
+            {gate}
+
+            {showRoleSelection && (
+              <RoleSelection
+                onSelectRole={selectRole}
+                isRegistering={isRegistering}
+                registerError={registerError}
+                currentRole={role || pendingRole}
+                activeRole={role}
+                onCancel={choosingRole && status !== 'needs-role' ? cancelChangeRole : undefined}
               />
-              <div style={{
-                fontFamily: "'IBM Plex Mono', monospace",
-                fontSize: '0.85rem', color: '#6B7280',
-              }}>
-                Initializing wallet…
-              </div>
-            </div>
-          )}
+            )}
 
-          {showRolePending && (
-            <div style={{
-              minHeight: '100vh', display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center', gap: '1rem',
-              padding: '2rem', textAlign: 'center',
-            }}>
-              <Loader2 size={36} color="#00C896" style={{ animation: 'spin 1s linear infinite' }} />
-              <h1 style={{ fontFamily: "'Libre Baskerville', serif", color: '#0d1f1a' }}>
-                {awaitingApproval ? 'Role registration awaiting approval' : 'Role registration pending on-chain confirmation'}
-              </h1>
-              <p style={{ color: '#6B7280', maxWidth: 520 }}>
-                {awaitingApproval
-                  ? `Your ${pendingRole} registration was received. An administrator must approve it before the role is granted on-chain; check again afterwards.`
-                  : `Your ${pendingRole} account is registered, but its smart-contract role is not active on the current contract yet.`}
-              </p>
-              <button
-                type="button"
-                onClick={retryRoleGrant}
-                disabled={isRegistering}
-                className="btn btn-primary"
-              >
-                <RefreshCw size={16} />
-                {isRegistering ? 'Checking…' : awaitingApproval ? 'Check again' : 'Retry role grant'}
-              </button>
-              {registerError && (
-                <div className="alert-banner alert-banner--error">{registerError}</div>
-              )}
-            </div>
-          )}
+            {/* Normal routing — only when the role is resolved or the user is signed out */}
+            {showApp && (
+              <Routes>
+                {/* Public landing page — always visible */}
+                <Route path="/" element={<LandingPage />} />
 
-          {/* Full-screen role selection */}
-          {showRoleSelection && (
-            <RoleSelection
-              onSelectRole={selectRole}
-              isRegistering={isRegistering}
-              registerError={registerError}
-            />
-          )}
+                {/* Manufacturer routes */}
+                <Route path="/dashboard" element={
+                  authenticated && role !== 'manufacturer'
+                    ? <Navigate to={role === 'lab' ? '/lab' : '/'} replace />
+                    : <Dashboard />
+                } />
+                <Route path="/mint" element={
+                  authenticated && role !== 'manufacturer'
+                    ? <Navigate to={role === 'lab' ? '/lab' : '/'} replace />
+                    : <MintToken />
+                } />
 
-          {/* Normal routing — only when role is resolved or user is unauthenticated */}
-          {!showRoleSelection && !showRoleLoading && !showRolePending && (
-            <Routes>
-              {/* Public landing page — always visible */}
-              <Route path="/" element={<LandingPage />} />
+                {/* Lab routes */}
+                <Route path="/lab" element={
+                  authenticated && role !== 'lab'
+                    ? <Navigate to={role === 'manufacturer' ? '/dashboard' : '/'} replace />
+                    : <LabDashboard />
+                } />
 
-              {/* Manufacturer routes */}
-              <Route path="/dashboard" element={
-                authenticated && role !== 'manufacturer'
-                  ? <Navigate to={role === 'lab' ? '/lab' : '/'} replace /> :
-                <Dashboard contract={contract} account={account} />
-              } />
-              <Route path="/mint" element={
-                authenticated && role !== 'manufacturer'
-                  ? <Navigate to={role === 'lab' ? '/lab' : '/'} replace /> :
-                <MintToken contract={contract} account={account} />
-              } />
-
-
-              {/* Lab routes */}
-              <Route path="/lab" element={
-                authenticated && role !== 'lab'
-                  ? <Navigate to="/" replace />
-                  : <LabDashboard />
-              } />
-
-              {/* Shared routes */}
-              <Route path="/details" element={<TokenDetails contract={contract} account={account} />} />
-              <Route path="/verify" element={<VerifyToken contract={contract} />} />
-            </Routes>
-          )}
+                {/* Shared routes */}
+                <Route path="/details" element={<TokenDetails />} />
+                <Route path="/verify" element={<VerifyToken />} />
+              </Routes>
+            )}
+          </Suspense>
         </main>
       </div>
     </BrowserRouter>

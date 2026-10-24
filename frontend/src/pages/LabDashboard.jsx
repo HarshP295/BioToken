@@ -668,8 +668,7 @@ export default function LabDashboard() {
   const [labAddress,       setLabAddress]       = useState('');      // smart account that holds tokens
 
   // The address manufacturers ship to: the smart account behind gasless txs.
-  // Keyed on the address, not the wallets array: getSmartAccountAddress calls
-  // switchChain, which hands back a new wallets array and would re-run this forever.
+  // Keyed on the address, not the wallets array, which changes identity often.
   const txWalletAddress = pickTxWallet(wallets)?.address;
   useEffect(() => {
     const wallet = pickTxWallet(wallets);

@@ -1,13 +1,13 @@
 // frontend/src/pages/RoleSelection.jsx
 // ─────────────────────────────────────────────────────────────────
-// One-time role selection screen shown after Privy authentication
-// when no role is persisted in localStorage for this wallet.
+// Role selection screen: shown after Privy sign-in when the wallet has no
+// role yet, and again whenever the user chooses "Change role".
 // ─────────────────────────────────────────────────────────────────
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Factory, FlaskConical, ArrowRight,
+  Factory, FlaskConical, ArrowRight, ArrowLeft,
   ShieldCheck, Package, Beaker, Cpu,
 } from 'lucide-react';
 import DNABackground from '../components/DNABackground';
@@ -25,7 +25,7 @@ const ROLES = [
       { icon: <Cpu size={14} />, text: 'Generate ZK commitments' },
       { icon: <ShieldCheck size={14} />, text: 'HPLC fingerprint capture' },
     ],
-    redirectTo: '/',
+    redirectTo: '/dashboard',
   },
   {
     id: 'lab',
@@ -43,12 +43,23 @@ const ROLES = [
   },
 ];
 
-export default function RoleSelection({ onSelectRole, isRegistering, registerError }) {
+export default function RoleSelection({
+  onSelectRole, isRegistering, registerError,
+  currentRole = null,   // role the wallet is registered as (active or pending)
+  activeRole = null,    // role that is already active on-chain
+  onCancel,             // set when changing an existing role: go back without changing
+}) {
   const navigate = useNavigate();
   const [hoveredRole, setHoveredRole] = useState(null);
   const [selectedRole, setSelectedRole] = useState(null);
 
   const handleSelect = async (role) => {
+    if (onCancel && role.id === activeRole) {
+      // Already this role: nothing to register.
+      onCancel();
+      navigate(role.redirectTo);
+      return;
+    }
     setSelectedRole(role.id);
     try {
       await onSelectRole(role.id);
@@ -90,7 +101,7 @@ export default function RoleSelection({ onSelectRole, isRegistering, registerErr
             fontWeight: 700, color: '#0d1f1a',
             lineHeight: 1.15, marginBottom: '0.75rem',
           }}>
-            Welcome to BioToken
+            {onCancel ? 'Change your role' : 'Welcome to BioToken'}
           </h1>
 
           <p style={{
@@ -98,8 +109,9 @@ export default function RoleSelection({ onSelectRole, isRegistering, registerErr
             fontSize: '1.05rem', color: '#6B7280',
             lineHeight: 1.8,
           }}>
-            Select your role to get started. This determines your dashboard
-            and available actions on the platform.
+            {onCancel
+              ? 'Pick the role you want to use. Your wallet will be asked to sign the change, and the new role is granted on the smart contract.'
+              : 'Select your role to get started. This determines your dashboard and available actions on the platform.'}
           </p>
         </div>
 
@@ -115,6 +127,7 @@ export default function RoleSelection({ onSelectRole, isRegistering, registerErr
             const isHovered = hoveredRole === role.id;
             const isSelected = selectedRole === role.id;
             const isLoading = isRegistering && isSelected;
+            const isCurrent = currentRole === role.id;
             const Icon = role.icon;
 
             return (
@@ -184,6 +197,16 @@ export default function RoleSelection({ onSelectRole, isRegistering, registerErr
                     fontFamily: "'Playfair Display', serif",
                     fontSize: '0.85rem', color: 'rgba(255,255,255,0.85)',
                   }}>{role.subtitle}</div>
+
+                  {isCurrent && (
+                    <div style={{
+                      position: 'absolute', top: 14, right: 14,
+                      fontFamily: "'Courier New', monospace", fontSize: '0.68rem', fontWeight: 700,
+                      letterSpacing: '0.08em', textTransform: 'uppercase',
+                      color: '#fff', background: 'rgba(255,255,255,0.22)',
+                      borderRadius: 9999, padding: '0.2rem 0.6rem',
+                    }}>Current</div>
+                  )}
                 </div>
 
                 {/* Features list */}
@@ -256,6 +279,18 @@ export default function RoleSelection({ onSelectRole, isRegistering, registerErr
           </div>
         )}
 
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={isRegistering}
+            className="btn btn-outline"
+            style={{ marginTop: '1.5rem' }}
+          >
+            <ArrowLeft size={16} /> Back
+          </button>
+        )}
+
         {/* Footer note */}
         <div style={{
           marginTop: '2.5rem',
@@ -265,7 +300,7 @@ export default function RoleSelection({ onSelectRole, isRegistering, registerErr
           maxWidth: 500,
           lineHeight: 1.7,
         }}>
-          Your role is stored locally and cannot be changed later.
+          You can switch roles later from the navigation bar.
           Lab users receive <span style={{
             background: 'rgba(0,200,150,0.1)',
             border: '1px solid rgba(0,200,150,0.2)',

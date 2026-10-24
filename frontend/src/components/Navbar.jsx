@@ -1,12 +1,13 @@
 // frontend/src/components/Navbar.jsx
 import { Link, useLocation } from 'react-router-dom';
-import { Activity, PlusCircle, Search, Menu, X, FlaskConical } from 'lucide-react';
+import { Activity, PlusCircle, Search, Menu, X, FlaskConical, Repeat } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { useRole } from '../hooks/useRole';
 
 export function ConnectWalletButton() {
   const { login, logout, authenticated, user, ready } = useAuth()
+  const { role, changeRole } = useRole()
 
   if (!ready) return <button className="btn btn-chain" disabled style={{ padding: '0.45rem 1.1rem', fontSize: '0.78rem' }}>Loading...</button>
 
@@ -15,6 +16,11 @@ export function ConnectWalletButton() {
       <span style={{ fontSize: 13, color: '#6b7280' }}>
         {user?.email?.address ?? user?.wallet?.address?.slice(0, 6) + '...'}
       </span>
+      {role && (
+        <button onClick={changeRole} className="btn btn-chain btn-outline" title="Switch between Manufacturer and Laboratory" style={{ padding: '0.45rem 0.9rem', fontSize: '0.78rem' }}>
+          <Repeat size={13} /> Change role
+        </button>
+      )}
       <button onClick={logout} className="btn btn-chain btn-outline" style={{ padding: '0.45rem 1.1rem', fontSize: '0.78rem' }}>Sign out</button>
     </div>
   )
@@ -39,7 +45,7 @@ function BioTokenLogo() {
   );
 }
 
-export default function Navbar({ account, connectWallet, isConnecting }) {
+export default function Navbar() {
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
   const { role } = useRole();

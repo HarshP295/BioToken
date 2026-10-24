@@ -12,7 +12,14 @@ import { WagmiProvider, createConfig } from '@privy-io/wagmi'
 import { polygonAmoy } from 'viem/chains'
 import { http } from 'wagmi'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { AMOY_RPC_URL } from './config'
+import { AI_API_URL, AMOY_RPC_URL } from './config'
+import { RoleProvider } from './context/RoleContext.jsx'
+
+// Wake the AI service while the page and Privy load: a sleeping free Render
+// instance needs up to a minute, and the role lookup waits on it.
+if (!/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/.test(AI_API_URL)) {
+  fetch(`${AI_API_URL}/health`, { mode: 'no-cors' }).catch(() => {})
+}
 
 const queryClient = new QueryClient()
 
@@ -38,7 +45,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     >
       <QueryClientProvider client={queryClient}>
         <WagmiProvider config={wagmiConfig}>
-          <App />
+          <RoleProvider>
+            <App />
+          </RoleProvider>
         </WagmiProvider>
       </QueryClientProvider>
     </PrivyProvider>
