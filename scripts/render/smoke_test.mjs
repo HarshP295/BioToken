@@ -119,18 +119,35 @@ await check('Single-page routes are served (/lab, /details)', async () => {
 })
 
 await check('Bundle points at the deployed contract and this AI service', async () => {
-  const scripts = [...indexHtml.matchAll(/src="([^"]+\.js)"/g)].map(m => m[1])
-  assert(scripts.length, 'no script tags in index.html')
-  let bundle = ''
-  for (const src of scripts) bundle += await (await get(new URL(src, WEB))).text()
-  // The main chunk imports others; follow one level of static imports.
-  for (const m of bundle.matchAll(/["'](\/assets\/[^"']+\.js)["']/g)) {
-    if (bundle.length > 30_000_000) break
-    bundle += await (await get(new URL(m[1], WEB))).text()
-  }
-  assert(bundle.toLowerCase().includes(deployment.BioToken.address.toLowerCase()), 'contract address not found in bundle')
+  // Entry scripts and <link rel="modulepreload"> chunks from index.html.
+  const entries = [...indexHtml.matchAll(/(?:src|href)="([^"]+\.js)"/g)].map(m => new URL(m[1], `${WEB}/`).href)
+  assert(entries.length, 'no script tags in index.html')
+
+  // Config can sit in a lazily loaded chunk, so crawl the chunk graph. Vite writes
+  // imports as "./chunk.js" (relative to the importing chunk) and its preload
+  // lists as "assets/chunk.js" (relative to the site root).
+  const address = deployment.BioToken.address.toLowerCase()
   const apiHost = new URL(API).host
-  assert(bundle.includes(apiHost), `AI service host ${apiHost} not found in bundle (VITE_AI_API_HOST / VITE_AI_API_URL)`)
+  const queue = [...new Set(entries)]
+  const seen = new Set(queue)
+  let foundAddress = false
+  let foundApi = false
+  let bytes = 0
+  while (queue.length && !(foundAddress && foundApi) && seen.size <= 500 && bytes < 60_000_000) {
+    const url = queue.shift()
+    const res = await get(url)
+    if (!res.ok) continue
+    const code = await res.text()
+    bytes += code.length
+    foundAddress ||= code.toLowerCase().includes(address)
+    foundApi ||= code.includes(apiHost)
+    for (const m of code.matchAll(/["'`]((?:\.{1,2}\/|\/?assets\/)[^"'`\s]+?\.js)["'`]/g)) {
+      const next = m[1].startsWith('.') ? new URL(m[1], url).href : new URL(m[1].replace(/^\//, ''), `${WEB}/`).href
+      if (!seen.has(next)) { seen.add(next); queue.push(next) }
+    }
+  }
+  assert(foundAddress, `contract address not found in bundle (${seen.size} chunks checked)`)
+  assert(foundApi, `AI service host ${apiHost} not found in bundle (VITE_AI_API_HOST / VITE_AI_API_URL)`)
   return `contract and ${apiHost} present`
 })
 
