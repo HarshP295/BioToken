@@ -13,6 +13,8 @@ A decentralized reagent provenance system on Polygon. Each biochemical reagent b
 
 The AI service runs on Render's free plan, so the first request after it has been idle takes up to a minute while it wakes up.
 
+Both services redeploy automatically on Render whenever a commit lands on `main`.
+
 ---
 
 ## How verification works
