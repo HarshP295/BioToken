@@ -75,8 +75,11 @@ export default function App() {
 
   const signedIn = ready && authenticated;
   const showRoleSelection = signedIn && needsRoleSelection;
+  // 'signed-out' while signed in is the first render after Privy is ready,
+  // before RoleContext has started the role lookup. Treat it as loading so the
+  // route guards below don't redirect a deep link (e.g. /mint) before the role is known.
   const showGate = signedIn && !showRoleSelection
-    && ['waiting-wallet', 'no-wallet', 'checking', 'pending', 'error'].includes(status);
+    && ['signed-out', 'waiting-wallet', 'no-wallet', 'checking', 'pending', 'error'].includes(status);
   const showApp = !showRoleSelection && !showGate;
 
   const handleCreateWallet = async () => {
@@ -102,7 +105,9 @@ export default function App() {
 
   let gate = null;
   if (showGate) {
-    if (status === 'waiting-wallet') {
+    if (status === 'signed-out') {
+      gate = <Spinner label="Loading your account…" />;
+    } else if (status === 'waiting-wallet') {
       gate = <Spinner label="Setting up your wallet…" />;
     } else if (status === 'checking') {
       gate = (
