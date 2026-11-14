@@ -1,10 +1,7 @@
 // frontend/src/pages/MintToken.jsx — full redesign
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ethers } from 'ethers';
 import { useAuth } from '../hooks/useAuth';
-import { useWallets } from '@privy-io/react-auth';
-import { CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
 import {
   Upload, PackageCheck, AlertCircle,
   CheckCircle2, Clock, Hash, Server,
@@ -275,7 +272,9 @@ function UploadCard({ file, onFile, animDelay }) {
 
 /* ── Card 3: NFT Preview ─────────────────────────────────────── */
 function NFTPreviewCard({ batchId, expiryDays, tolerance, animDelay }) {
-  const expiry = new Date(Date.now() + expiryDays * 86400000).toLocaleDateString('en-US', {
+  // The clock is read once (lazy initializer); the preview still follows expiryDays.
+  const [now] = useState(() => Date.now());
+  const expiry = new Date(now + expiryDays * 86400000).toLocaleDateString('en-US', {
     year: 'numeric', month: 'short', day: 'numeric',
   });
 
@@ -431,21 +430,20 @@ function MintedCard({ minted, onDone }) {
 }
 
 /* ── Page ────────────────────────────────────────────────────── */
-export default function MintToken({ contract }) {
+export default function MintToken() {
   const navigate  = useNavigate();
-  const { ready, authenticated } = useAuth();
-  const { wallets } = useWallets();
-  const wallet    = wallets[0];
+  const { authenticated } = useAuth();
   const { mintBatch, loading, isGeneratingProof, error: gaslessError, consensusResult } = useGaslessContract();
   const [error,    setError]    = useState('');
   const [fpFile,   setFpFile]   = useState(null);
   const [minted,   setMinted]   = useState(null);
-  const [formData, setFormData] = useState({
+  // Lazy initializer: the random batch id is drawn once, not on every render.
+  const [formData, setFormData] = useState(() => ({
     batchId:       `BATCH-${Math.floor(Math.random() * 10000)}`,
     reagentSmiles: '',
     tolerance:     DEFAULT_TOLERANCE,
     expiryDays:    365,
-  });
+  }));
 
   const handleMint = async (e) => {
     e.preventDefault();

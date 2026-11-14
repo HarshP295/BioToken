@@ -5,7 +5,8 @@ import {
   RefreshCw, ArrowRight, Package, Info,
   FlaskConical, Truck, CheckCircle2, ShieldCheck, Beaker,
 } from 'lucide-react';
-import StatusBadge, { STAGES } from '../components/StatusBadge';
+import StatusBadge from '../components/StatusBadge';
+import { STAGES } from '../components/stages';
 import DNABackground from '../components/DNABackground';
 
 import { useAuth } from '../hooks/useAuth';
@@ -130,7 +131,9 @@ function TokenCard({ token }) {
   const expDate   = new Date(token.expiry * 1000).toLocaleDateString('en-US', {
     year: 'numeric', month: 'short', day: 'numeric',
   });
-  const isExpired = token.expiry * 1000 < Date.now();
+  // Read the clock once per card (a lazy initializer), not on every render.
+  const [now] = useState(() => Date.now());
+  const isExpired = token.expiry * 1000 < now;
 
   return (
     <Link

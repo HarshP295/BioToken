@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Send, CheckCircle2, Info, ShieldCheck, Beaker, ShieldAlert, Copy, Check } from 'lucide-react';
-import StatusBadge, { STAGES } from '../components/StatusBadge';
+import StatusBadge from '../components/StatusBadge';
 
 import { useAuth } from '../hooks/useAuth';
 import { useRole } from '../hooks/useRole';

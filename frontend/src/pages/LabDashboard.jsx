@@ -609,6 +609,19 @@ function SuccessCard({ txReceipt, tokenId }) {
         Token #{tokenId} has been verified on-chain: the AI oracle signed a GENUINE
         verdict and your scan matched the committed Gold Standard. Status is now VERIFIED.
       </div>
+      {txReceipt?.receipt?.transactionHash && (
+        <a
+          href={`https://amoy.polygonscan.com/tx/${txReceipt.receipt.transactionHash}`}
+          target="_blank" rel="noopener noreferrer"
+          style={{
+            display: 'block', marginBottom: '1.25rem',
+            fontFamily: "'Courier New', monospace", fontSize: '0.78rem',
+            color: '#4F46E5', wordBreak: 'break-all',
+          }}
+        >
+          Transaction {txReceipt.receipt.transactionHash}
+        </a>
+      )}
       <Link to={`/details?id=${tokenId}`} style={{
         display: 'inline-flex', alignItems: 'center', gap: '0.5rem',
         padding: '0.7rem 1.5rem', borderRadius: '9999px',
@@ -627,7 +640,7 @@ function SuccessCard({ txReceipt, tokenId }) {
 
 /* ── Main Page Component ──────────────────────────────────────── */
 export default function LabDashboard() {
-  const { ready, authenticated } = useAuth();
+  const { authenticated } = useAuth();
   const { wallets } = useWallets();
   const { role, roleLoading } = useRole();
   const {
