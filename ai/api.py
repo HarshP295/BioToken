@@ -134,6 +134,11 @@ ROLE_FLAG_FIELDS = {
 }
 
 
+def utc_now_iso() -> str:
+    """Current UTC time, ISO 8601 with offset (datetime.utcnow() is deprecated)."""
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+
 def mongo_unavailable(error: Exception) -> HTTPException:
     return HTTPException(
         status_code=503,
@@ -425,7 +430,7 @@ async def register_role(req: RegisterRoleRequest):
         raise HTTPException(401, "Registration must be signed by the wallet being registered")
 
     granted_field, tx_field = ROLE_FLAG_FIELDS[role]
-    now = datetime.datetime.utcnow().isoformat()
+    now = utc_now_iso()
     try:
         existing = await users_collection.find_one({"walletAddress": wallet.lower()}, {"_id": 0}) or {}
         # Re-registering the same role and holder keeps an earlier approval
@@ -544,7 +549,7 @@ async def update_last_login(wallet: str):
     try:
         await users_collection.update_one(
             {"walletAddress": wallet.lower()},
-            {"$set": {"lastLoginAt": datetime.datetime.utcnow().isoformat()}}
+            {"$set": {"lastLoginAt": utc_now_iso()}}
         )
     except (ConfigurationError, ServerSelectionTimeoutError) as e:
         raise mongo_unavailable(e) from e
