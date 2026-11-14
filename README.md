@@ -1,31 +1,94 @@
+<div align="center">
+
 # BioToken
 
-A decentralized reagent provenance system on Polygon. Each biochemical reagent batch is minted as an ERC-721 NFT and tracked through a five-stage lifecycle (MINTED → IN\_TRANSIT → RECEIVED → VERIFIED → CONSUMED). A batch is verified by an AI check of its HPLC retention time and a zero-knowledge proof that the lab's HPLC fingerprint matches the manufacturer's, without revealing either fingerprint.
+**Trustless reagent provenance on Polygon, verified by AI and zero-knowledge proofs.**
 
-**Live (Polygon Amoy testnet)**
+[![Live app](https://img.shields.io/badge/live-biotoken--web.onrender.com-00C896)](https://biotoken-web.onrender.com)
+[![Network](https://img.shields.io/badge/network-Polygon%20Amoy-8247E5)](https://amoy.polygonscan.com/address/0x59B06aE32e732bb3D91b0F301af6791A0C98b202)
+![Solidity](https://img.shields.io/badge/Solidity-0.8.28-363636)
+![Circom](https://img.shields.io/badge/Circom-Groth16-4F46E5)
+![Python](https://img.shields.io/badge/Python-FastAPI%20%C2%B7%20XGBoost-3776AB)
+![React](https://img.shields.io/badge/React-19%20%C2%B7%20Vite-61DAFB)
 
-| | |
-|---|---|
-| Web app | https://biotoken-web.onrender.com |
-| AI service | https://biotoken-api.onrender.com/health |
-| BioToken contract | [`0x59B06aE32e732bb3D91b0F301af6791A0C98b202`](https://amoy.polygonscan.com/address/0x59B06aE32e732bb3D91b0F301af6791A0C98b202) |
-| HplcVerifier (Groth16) | [`0xA44699310aE4599cF43C1dBe68B227f3cb4E16DA`](https://amoy.polygonscan.com/address/0xA44699310aE4599cF43C1dBe68B227f3cb4E16DA) |
+</div>
 
-The AI service runs on Render's free plan, so the first request after it has been idle takes up to a minute while it wakes up.
+BioToken tracks every biochemical reagent batch as an ERC-721 token through a five-stage lifecycle (`MINTED → IN_TRANSIT → RECEIVED → VERIFIED → CONSUMED`). A batch only becomes `VERIFIED` when two independent checks pass on-chain:
 
-Both services redeploy automatically on Render whenever a commit lands on `main`.
+- an **AI pre-screen** that compares the lab's measured HPLC retention time with the one predicted for the reagent, signed by an oracle key, and
+- a **zero-knowledge proof** that the lab's HPLC fingerprint matches the manufacturer's Gold Standard, without revealing either fingerprint.
+
+Users sign in with email or Google and never pay gas: every action is an ERC-4337 UserOperation sponsored by a paymaster.
 
 ---
 
-## How verification works
+## Demo
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="https://github.com/HarshP295/BioToken/releases/download/demo-videos/BioToken_Demo_Film.mp4">
+        <img src="docs/media/demo-film-thumbnail.jpg" alt="BioToken demo film (3:00)" />
+      </a>
+      <br />
+      <b>Demo film</b> · 3:00<br />
+      The problem, the architecture and the verification flow, step by step.
+    </td>
+    <td width="50%" align="center">
+      <a href="https://github.com/HarshP295/BioToken/releases/download/demo-videos/BioToken_Live_Walkthrough.mp4">
+        <img src="docs/media/live-walkthrough-thumbnail.jpg" alt="BioToken live walkthrough on Polygon Amoy (2:22)" />
+      </a>
+      <br />
+      <b>Live walkthrough</b> · 2:22<br />
+      The deployed app on Amoy: mint, ship, receive, AI check, ZK proof, verify and consume, plus a tampered batch being stopped.
+    </td>
+  </tr>
+</table>
+
+Both videos are attached to the [`demo-videos` release](https://github.com/HarshP295/BioToken/releases/tag/demo-videos).
+
+## Live deployment (Polygon Amoy testnet)
+
+| Component | Address |
+|---|---|
+| Web app | https://biotoken-web.onrender.com |
+| AI service | https://biotoken-api.onrender.com/health |
+| `BioToken` contract | [`0x59B06aE32e732bb3D91b0F301af6791A0C98b202`](https://amoy.polygonscan.com/address/0x59B06aE32e732bb3D91b0F301af6791A0C98b202) |
+| `HplcVerifier` (Groth16) | [`0xA44699310aE4599cF43C1dBe68B227f3cb4E16DA`](https://amoy.polygonscan.com/address/0xA44699310aE4599cF43C1dBe68B227f3cb4E16DA) |
+
+Both services redeploy on Render whenever a commit lands on `main`. The AI service runs on Render's free plan, so the first request after a quiet period can take up to a minute while it wakes up.
+
+## How it works
+
+```mermaid
+flowchart LR
+    M["Manufacturer<br/>(browser)"] -- "mintToken: commitment + tolerance" --> B[("BioToken.sol<br/>Polygon Amoy")]
+    M -. "Gold Standard package<br/>(off-chain, private)" .-> L["Lab<br/>(browser)"]
+    L -- "reagent SMILES + measured RT" --> A["AI service<br/>FastAPI · RDKit · XGBoost"]
+    A -- "signed GENUINE verdict" --> L
+    L -- "verifyProof: Groth16 proof + verdict" --> B
+    B -- "checks proof" --> V["HplcVerifier.sol"]
+```
 
 1. **Mint (manufacturer).** The Gold Standard HPLC file is parsed in the browser and checked against known-good supplier fingerprints. A Poseidon commitment to its 10 peaks (plus a random salt) and a per-peak tolerance are stored on-chain with the token. The manufacturer sends the **Gold Standard package** (peaks + salt) to the receiving lab privately.
-2. **Ship and receive.** Only the token holder can ship, and only to an address with `LAB_ROLE`. The receiving lab confirms receipt.
-3. **AI pre-screen (lab).** The AI service predicts the retention time of the reagent recorded on the token (RDKit features → XGBoost) and compares it with the RT the lab measured. A GENUINE verdict is signed by the AI oracle key.
-4. **ZK proof (lab).** In the browser, the lab proves that its own scan is within the stored tolerance of the committed Gold Standard, for this token. A scan that doesn't match has no proof.
-5. **On-chain verification.** `BioToken.verifyProof` checks the oracle's signature and the Groth16 proof against the commitment, tolerance and token id it stored itself. Then the lab can consume the batch.
+2. **Ship and receive.** Only the token holder can ship, and only to an address holding `LAB_ROLE`. The receiving lab confirms receipt.
+3. **AI pre-screen (lab).** The AI service predicts the retention time of the reagent recorded on the token (RDKit features → XGBoost) and compares it with the RT the lab measured. A GENUINE verdict is signed by the AI oracle key and bound to the chain, contract, token and reagent.
+4. **ZK proof (lab).** In the browser, the lab proves that its own scan is within the stored tolerance of the committed Gold Standard, for this token. A scan that doesn't match has no valid proof.
+5. **On-chain verification.** `BioToken.verifyProof` checks the oracle's signature and the Groth16 proof against the commitment, tolerance and token ID it stored itself. The lab can then consume the batch.
 
-Transactions are gasless: users log in with Privy, and their actions are sent as ERC-4337 UserOperations from a smart account sponsored by Pimlico. Users choose the **Lab** or **Manufacturer** role on first login.
+The raw lab chromatogram and the Gold Standard package never leave the browser; only the reagent SMILES and the measured retention time go to the AI service.
+
+Users log in with [Privy](https://privy.io), choose the **Manufacturer** or **Lab** role on first login, and transact from a smart account sponsored by [Pimlico](https://pimlico.io).
+
+## Tech stack
+
+| Layer | Technologies |
+|---|---|
+| Smart contracts | Solidity 0.8.28, OpenZeppelin (ERC-721, AccessControl, ECDSA), Hardhat |
+| Zero-knowledge | Circom 2, circomlib (Poseidon, comparators), snarkjs Groth16, Perpetual Powers of Tau |
+| AI service | Python, FastAPI, RDKit, XGBoost, scikit-learn, MongoDB (Motor), web3.py |
+| Web app | React 19, Vite, Privy, permissionless.js + viem (ERC-4337), ethers v6 |
+| Infrastructure | Polygon Amoy, Pimlico bundler and paymaster, Render |
 
 ## Repository structure
 
@@ -38,17 +101,19 @@ samples/hplc/   Sample HPLC files for the Mint and Lab pages, with expected resu
 scripts/        Contract deployment, role grants, local end-to-end run, Render smoke test
 test/           Hardhat tests (lifecycle, access control, real Groth16 proofs)
 deployments/    Deployed addresses + ABI (amoy.json), read by the app and the API
-docs/           System verification report, deployment guide, evidence of live runs
+docs/           System verification report, deployment guide, evidence of live runs, media
 render.yaml     Render Blueprint for the AI service and the web app
 ```
 
-## Prerequisites
+## Getting started
 
-- Node.js ≥ 20.19 and npm
-- Python 3.13 (3.11+ works for development)
-- For deploying contracts: a Polygon Amoy wallet with test POL
+### Prerequisites
 
-## Run locally
+- Node.js 20.19 or later, with npm
+- Python 3.13 (3.11 or later works for development)
+- To deploy contracts: a Polygon Amoy wallet funded with test POL
+
+### Run locally
 
 ```bash
 git clone https://github.com/HarshP295/BioToken.git
@@ -71,26 +136,38 @@ cd ai && ../.venv/Scripts/python -m uvicorn api:app --port 8000
 cd frontend && npm run dev
 ```
 
-Open http://localhost:5173 (not `127.0.0.1`; Privy only allows the configured origin). To try a full verification, mint with a file from [samples/hplc/manufacturer/](samples/hplc/manufacturer/), ship it to the lab's address (shown on its Lab Dashboard), then on the Lab Dashboard upload the matching lab scan from [samples/hplc/lab/](samples/hplc/lab/) and the Gold Standard package downloaded after minting. The files, the RT to type, and the expected outcome of each are listed in [docs/SYSTEM_VERIFICATION.md §6](docs/SYSTEM_VERIFICATION.md#6-hplc-upload-files).
+Open http://localhost:5173 (not `127.0.0.1`: Privy only allows the configured origin).
 
-## Test
+### Try a full verification
+
+1. As a **Manufacturer**, mint a batch with a file from [samples/hplc/manufacturer/](samples/hplc/manufacturer/) and download the Gold Standard package.
+2. Ship the token to the lab's address, which is shown on the Lab Dashboard.
+3. As the **Lab**, confirm receipt on the token's details page.
+4. On the Lab Dashboard, load the token, upload the matching scan from [samples/hplc/lab/](samples/hplc/lab/) and the Gold Standard package, enter the measured RT, then run the AI check and the proof.
+
+The files, the RT to enter and the expected outcome of each are listed in [docs/SYSTEM_VERIFICATION.md §6](docs/SYSTEM_VERIFICATION.md#6-hplc-upload-files).
+
+## Testing
 
 ```bash
 npx hardhat test                        # contracts, incl. real Groth16 proofs (26 tests)
-cd ai && python -m pytest tests         # AI service, signed verdicts, roles, samples (49 tests)
+cd ai && python -m pytest tests         # AI service: verdicts, signatures, roles, samples (50 tests)
+cd frontend && npm run lint             # frontend lint (clean)
 npm run check:samples                   # sample files through the parser, consensus and circuit
 npm run integrate                       # full lifecycle on a local chain (AI service running)
 npm run e2e:amoy                        # full gasless lifecycle on Amoy (writes docs/evidence/)
 npm run smoke -- --api <api url> --web <web url>   # read-only checks of a deployment
 ```
 
-`npm run integrate` also takes `LAB_CSV`, `GOLD_FILE`, `SMILES` and `OBSERVED_RT`. For example, the tampered scan stops at the proof step:
+`npm run integrate` also accepts `LAB_CSV`, `GOLD_FILE`, `SMILES` and `OBSERVED_RT`. For example, the tampered scan stops at the proof step:
 
 ```bash
 LAB_CSV=samples/hplc/lab/BATCH-CAF-001_lab_scan_tampered.csv npm run integrate
 ```
 
-AI reproduction scripts (need the METLIN SMRT data in `ai/data/`):
+### Reproducing the AI results
+
+The reproduction scripts need the METLIN SMRT dataset in `ai/data/`:
 
 ```bash
 curl -L "https://ndownloader.figshare.com/files/18130628" -o ai/data/SMRT_dataset.csv
@@ -99,19 +176,19 @@ python ai/layer2_validation_logged.py      # Layer 2 (ICH degradation)
 python ai/reportrt_validation_fix.py path/to/RepoRT   # Layer 1, needs a RepoRT clone
 ```
 
-`ai/models/` holds the models the paper's numbers come from. See [AI_VALIDATION_RECONCILIATION.md](AI_VALIDATION_RECONCILIATION.md) for verified results.
+`ai/models/` holds the models the published numbers come from. Verified results are in [AI_VALIDATION_RECONCILIATION.md](AI_VALIDATION_RECONCILIATION.md).
 
-## Deploy
+## Deployment
 
-**Contracts** (only when they change, e.g. after a circuit change):
+**Contracts** (only when they change, for example after a circuit change):
 
 ```bash
 npm run deploy:contracts    # deploys HplcVerifier + BioToken to Amoy, writes deployments/amoy.json
 ```
 
-Commit `deployments/amoy.json` afterwards; the app and the API read the address and ABI from it. The circuit build and trusted setup are in [circuits/SETUP.md](circuits/SETUP.md).
+Commit `deployments/amoy.json` afterwards: the app and the API read the address and ABI from it. The circuit build and trusted setup are described in [circuits/SETUP.md](circuits/SETUP.md).
 
-**Web app and AI service** on Render: [render.yaml](render.yaml) defines both. Use Render → New → Blueprint, fill in the secrets, add the web URL to Privy's allowed origins, then run `npm run smoke`. The full guide is in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+**Web app and AI service** run on Render, defined in [render.yaml](render.yaml). Create them with Render → New → Blueprint, fill in the secrets, add the web URL to Privy's allowed origins, then run `npm run smoke` against the new URLs. The full guide is in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Configuration
 
@@ -131,29 +208,44 @@ Repo-root `.env` (contracts, scripts, AI service):
 
 `frontend/.env`: `VITE_PRIVY_APP_ID`, `VITE_PIMLICO_API_KEY`, `VITE_PIMLICO_POLICY_ID`, `VITE_AI_API_URL`, `VITE_AMOY_RPC_URL`, and optionally `VITE_CONTRACT_ADDRESS`.
 
+> [!TIP]
+> The web app reads token data from `VITE_AMOY_RPC_URL`. The default public endpoint (drpc) works, but is rate-limited and occasionally times out; the app retries those failures. For a smoother experience, use a dedicated endpoint (for example Alchemy or Infura).
+
+## Recent changes
+
+The latest update to `main` ([#2](https://github.com/HarshP295/BioToken/pull/2)) focused on reliability:
+
+- **AI service stays responsive during role grants.** On-chain role grants and the `/health/ready` checks now run in worker threads instead of blocking the server, and grants are serialized so they never reuse a nonce.
+- **Lab Dashboard recovers from failures.** A failed AI request can be retried in place, and a failed on-chain submission can be resent with the same proof.
+- **Clear guidance on the Lab Dashboard.** Verification is offered only for batches this lab holds in the `RECEIVED` state; otherwise the page explains what is missing (not shipped, receipt not confirmed, or held by another lab).
+- **Faster, more reliable token lists.** Pages read the chain through a shared public-RPC client instead of the wallet, show each lab only its own batches (including those in transit), and retry transient RPC errors.
+- **Clean frontend lint.** `npm run lint` reports no problems.
+
 ## Documentation
 
-- [docs/SYSTEM_VERIFICATION.md](docs/SYSTEM_VERIFICATION.md): how each layer works, test results, the live Amoy runs, findings and known limitations
+- [docs/SYSTEM_VERIFICATION.md](docs/SYSTEM_VERIFICATION.md): how each layer works, test results, live Amoy runs, findings and known limitations
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): Render setup, configuration reference, release process
-- [circuits/SETUP.md](circuits/SETUP.md): circuit and trusted setup
+- [circuits/SETUP.md](circuits/SETUP.md): circuit build and trusted setup
 - [AI_VALIDATION_RECONCILIATION.md](AI_VALIDATION_RECONCILIATION.md): AI model validation
 
 ## Status and limitations
 
-This is a testnet deployment. Before production use:
+BioToken is deployed on a testnet. Before production use:
 
 - run a multi-party phase-2 trusted setup (the current one has a single contributor);
-- set `ROLE_AUTO_APPROVE=false`, so roles need approval;
+- set `ROLE_AUTO_APPROVE=false`, so roles need administrator approval;
 - use dedicated keys for the deployer and the AI oracle.
 
 The full list is in [docs/SYSTEM_VERIFICATION.md §10](docs/SYSTEM_VERIFICATION.md#10-known-limitations-and-next-steps).
 
-## Branch Strategy
+## Contributing
 
-| Branch | Purpose |
+Work happens on short-lived `feat/*` and `fix/*` branches that are merged into `main` through pull requests. `main` is always deployable: every merge redeploys the live services. Before opening a pull request, run the contract tests, the AI tests and the frontend lint (see [Testing](#testing)).
+
+## Team
+
+| Name | Role |
 |---|---|
-| `main` | Stable, release-ready code |
-| `dev` | Active development, integration branch |
-| `feature/xxx` | Individual feature branches off `dev` |
-
-All work happens on `feature/*` branches, merged into `dev` via pull request. `dev` is merged into `main` when stable.
+| Khushi Singh | Blockchain & ZK Engineer |
+| Harsh Patil | HPLC Fingerprinting & ML |
+| Ishaan Khan | Smart Contracts & Circuit Design |
