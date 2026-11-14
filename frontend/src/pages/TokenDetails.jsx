@@ -1,5 +1,5 @@
 // frontend/src/pages/TokenDetails.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { ArrowLeft, RefreshCw, Send, CheckCircle2, Info, ShieldCheck, Beaker, ShieldAlert, Copy, Check } from 'lucide-react';
 import StatusBadge, { STAGES } from '../components/StatusBadge';
@@ -8,8 +8,8 @@ import { useAuth } from '../hooks/useAuth';
 import { useRole } from '../hooks/useRole';
 import { useWallets } from '@privy-io/react-auth';
 import { ethers } from 'ethers';
-import { AMOY_RPC_URL, CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
 import { useGaslessContract } from '../hooks/useGaslessContract';
+import { getReadContract, readToken } from '../lib/tokens';
 
 // `actor` is the role whose on-chain call advances the stage; BioToken
 // enforces it (holder-only calls, recipient must hold LAB_ROLE).
@@ -25,16 +25,15 @@ const LIFECYCLE = [
 const MANUFACTURER_STAGES = new Set([0, 1]); // Minted, In Transit
 const LAB_STAGES          = new Set([1, 2, 3, 4]); // In Transit … Consumed
 
-export default function TokenDetails({ contract }) {
+export default function TokenDetails() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tokenId = searchParams.get('id');
   const [lookupId, setLookupId] = useState('');
 
-  const { ready, authenticated, user, createWallet } = useAuth();
+  const { authenticated } = useAuth();
   const { role } = useRole();
   const { wallets } = useWallets();
   const wallet = wallets[0];
-  const account = wallet?.address || user?.wallet?.address;
 
   const [token,         setToken]         = useState(null);
   const [loading,       setLoading]       = useState(true);
@@ -43,30 +42,13 @@ export default function TokenDetails({ contract }) {
   const [copied,        setCopied]        = useState(false);
   const [recipient,     setRecipient]     = useState('');   // receiving lab's address
 
-  const getActiveContract = async () => {
-    let activeContract = contract;
-    if (!activeContract) {
-      // For read-only calls we only need a public provider but if authenticated, we get the signer
-      if (wallet) {
-        const provider = await wallet.getEthereumProvider();
-        const browserProvider = new ethers.BrowserProvider(provider);
-        const signer = await browserProvider.getSigner();
-        activeContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-      } else {
-        const fallbackProvider = new ethers.JsonRpcProvider(AMOY_RPC_URL);
-        activeContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, fallbackProvider);
-      }
-    }
-    return activeContract;
-  };
-
-  const loadData = async () => {
+  // Reads use the public Amoy RPC (lib/tokens.js), not the wallet, so the
+  // page loads once per token id rather than whenever the wallet object changes.
+  const loadData = useCallback(async () => {
     if (!tokenId) return;
     try {
       setLoading(true); setError('');
-      const activeContract = await getActiveContract();
-      const owner = await activeContract.ownerOf(tokenId);
-      const data  = await activeContract.getTokenData(tokenId);
+      const [owner, data] = await readToken(getReadContract(), tokenId);
       setToken({
         id: tokenId, owner,
         batchId: data.batchId,
@@ -83,9 +65,9 @@ export default function TokenDetails({ contract }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [tokenId]);
 
-  useEffect(() => { loadData(); }, [contract, tokenId, wallet]);
+  useEffect(() => { loadData(); }, [loadData]);
 
 
 

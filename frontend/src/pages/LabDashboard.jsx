@@ -4,7 +4,7 @@
 // Completely separate from the manufacturer Dashboard.
 // ─────────────────────────────────────────────────────────────────
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Search, FlaskConical, Fingerprint, ShieldCheck,
@@ -14,8 +14,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useWallets } from '@privy-io/react-auth';
-import { ethers } from 'ethers';
-import { AMOY_RPC_URL, CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
+import { loadAllTokens, sameAddress } from '../lib/tokens';
 import { useLabVerification, LAB_STEPS, checkAgainstToken } from '../hooks/useLabVerification';
 import { parseHplcFile } from '../lib/hplcParser';
 import { parseGoldPackage } from '../lib/fingerprint';
@@ -71,50 +70,31 @@ function PeakChips({ label, values }) {
   );
 }
 
-// Lab only cares about tokens that have passed to their side (status >= 2)
-const LAB_STATUSES = new Set([2, 3, 4]);
+// Statuses a lab's own tokens can have: shipped to it (awaiting receipt) onwards.
+const LAB_STATUSES = [1, 2, 3, 4];
 
 /* ── Lab Reagent Overview Panel ───────────────────────────────── */
-function LabTokensOverview({ wallets }) {
+// Tokens held by this lab's smart account. Once shipped to a lab a token
+// never leaves it, so "held by this lab" is every batch it was sent.
+function LabTokensOverview({ labAddress }) {
   const [tokens,   setTokens]   = useState([]);
   const [loading,  setLoading]  = useState(false);
   const [open,     setOpen]     = useState(true);
 
-  const loadTokens = async () => {
+  const loadTokens = useCallback(async () => {
+    if (!labAddress) return;
     setLoading(true);
     try {
-      let contract;
-      if (wallets && wallets[0]) {
-        const prov   = await wallets[0].getEthereumProvider();
-        const bp     = new ethers.BrowserProvider(prov);
-        const signer = await bp.getSigner();
-        contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-      } else {
-        const fp = new ethers.JsonRpcProvider(AMOY_RPC_URL);
-        contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, fp);
-      }
-      const fetched = [];
-      const total = Number(await contract.totalMinted());
-      for (let i = 0; i < total; i++) {
-        const owner = await contract.ownerOf(i);
-        const data  = await contract.getTokenData(i);
-        const status = Number(data.status);
-        if (LAB_STATUSES.has(status)) {
-          fetched.push({
-            id: i, owner, batchId: data.batchId,
-            expiry: Number(data.expiry), status,
-          });
-        }
-      }
-      setTokens(fetched.reverse());
+      const all = await loadAllTokens();
+      setTokens(all.filter(t => sameAddress(t.owner, labAddress) && LAB_STATUSES.includes(t.status)));
     } catch (err) {
       console.error('Lab overview load failed:', err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [labAddress]);
 
-  useEffect(() => { loadTokens(); }, []);
+  useEffect(() => { loadTokens(); }, [loadTokens]);
 
   const statusCount = (s) => tokens.filter(t => t.status === s).length;
 
@@ -170,7 +150,7 @@ function LabTokensOverview({ wallets }) {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.55rem', flexWrap: 'wrap' }}>
-          {[2, 3, 4].map(s => {
+          {LAB_STATUSES.map(s => {
             const m = STATUS_META[s];
             const c = statusCount(s);
             return c > 0 ? (
@@ -208,7 +188,7 @@ function LabTokensOverview({ wallets }) {
 
       {open && (
         <div style={{ padding: '1.25rem 1.75rem 1.75rem', position: 'relative', zIndex: 1 }}>
-          {loading && tokens.length === 0 ? (
+          {(loading || !labAddress) && tokens.length === 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '3rem 0', gap: '1rem' }}>
               <div style={{ position: 'relative', width: 56, height: 56 }}>
                 <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', border: '2px solid rgba(0,200,150,0.25)', animation: 'labRipple 1.6s ease-out infinite' }} />
@@ -221,7 +201,7 @@ function LabTokensOverview({ wallets }) {
             </div>
           ) : tokens.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '2.5rem', fontFamily: "'Playfair Display', serif", fontSize: '0.9rem', color: '#9CA3AF' }}>
-              No reagent batches have reached the lab yet.
+              No reagent batches have been shipped to this lab yet.
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(255px, 1fr))', gap: '0.85rem' }}>
@@ -717,11 +697,37 @@ export default function LabDashboard() {
     }
   };
 
+  // verifyProof needs status RECEIVED and the caller holding the token, so
+  // only then are the AI check and the proof offered. holdsToken is null
+  // until the lab's smart-account address is known.
+  const holdsToken = tokenData && labAddress ? sameAddress(tokenData.owner, labAddress) : null;
+  const verifiable = Boolean(tokenData) && tokenData.status === 2 && holdsToken === true;
+  let notVerifiableReason = null;
+  if (tokenData && tokenData.status === 0) {
+    notVerifiableReason = {
+      title: 'Not shipped yet',
+      text: 'The manufacturer has not shipped this batch. It can be verified once it has been shipped to your lab address and you have confirmed receipt.',
+    };
+  } else if (tokenData && tokenData.status <= 2 && holdsToken === false) {
+    notVerifiableReason = {
+      title: 'Held by another address',
+      text: `This batch is held by ${tokenData.owner}, not by your lab. Only the lab that holds a batch can verify it.`,
+    };
+  } else if (tokenData && tokenData.status === 1 && holdsToken === true) {
+    notVerifiableReason = {
+      title: 'Confirm receipt first',
+      text: 'This batch is on its way to your lab. Confirm receipt on its Token Details page, then verify it here.',
+      link: true,
+    };
+  }
+
   // ── Handlers ───────────────────────────────────────────────────
+  // The hook shows each step's error in the banner and rethrows; the
+  // handlers swallow the rethrow so it is not an unhandled rejection.
   const handleFetch = async (e) => {
     e.preventDefault();
     if (!tokenIdInput.trim()) return;
-    await fetchToken(tokenIdInput.trim());
+    await fetchToken(tokenIdInput.trim()).catch(() => {});
   };
 
   const handleAiCheck = async (e) => {
@@ -735,15 +741,20 @@ export default function LabDashboard() {
       alert('Enter the observed retention time (seconds).');
       return;
     }
-    await runAiCheck({ observedRt: rt });
+    await runAiCheck({ observedRt: rt }).catch(() => {});
   };
 
   const handleGenerateProof = async () => {
-    const proofData = await generateProof({ labPeaks: extractedPeaks, goldPackage });
-    // Auto-submit after proof generation
-    if (proofData && tokenData) {
+    try {
+      const proofData = await generateProof({ labPeaks: extractedPeaks, goldPackage });
+      // Auto-submit after proof generation
       await submitVerification(tokenData.id, proofData.proof, aiResult.attestation);
-    }
+    } catch { /* shown in the error banner */ }
+  };
+
+  // A failed submission keeps the proof, so it can be sent again as is.
+  const handleRetrySubmit = async () => {
+    await submitVerification(tokenData.id, zkProof.proof, aiResult.attestation).catch(() => {});
   };
 
   const handleReset = () => {
@@ -944,7 +955,7 @@ export default function LabDashboard() {
           )}
 
           {/* ── Lab Reagent Overview ── */}
-          <LabTokensOverview wallets={wallets} />
+          <LabTokensOverview labAddress={labAddress} />
 
           {/* ── Receiving address for manufacturers ── */}
           {labAddress && (
@@ -988,6 +999,35 @@ export default function LabDashboard() {
                 {tokenData.status === 4
                   ? 'This reagent batch has already been consumed. No further actions are possible.'
                   : 'This batch has already been verified on-chain. Re-verification is not permitted.'}
+              </div>
+            </div>
+          )}
+
+          {/* ── Not verifiable yet: not shipped, awaiting receipt, or another lab's ── */}
+          {notVerifiableReason && (
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: '0.6rem',
+              padding: '1.1rem 1.25rem',
+              background: 'rgba(245,158,11,0.06)',
+              border: '1px solid rgba(245,158,11,0.25)',
+              borderLeft: '3px solid #F59E0B',
+              borderRadius: '12px',
+              fontFamily: "'Playfair Display', serif",
+              fontSize: '0.9rem',
+              color: '#92400E',
+              marginBottom: '1.25rem',
+            }}>
+              <Info size={16} style={{ flexShrink: 0, marginTop: 2 }} />
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: '0.2rem', fontFamily: "'Libre Baskerville', serif" }}>
+                  {notVerifiableReason.title}
+                </div>
+                {notVerifiableReason.text}{' '}
+                {notVerifiableReason.link && (
+                  <Link to={`/details?id=${tokenData.id}`} style={{ color: '#B45309', fontWeight: 700 }}>
+                    Open Token Details
+                  </Link>
+                )}
               </div>
             </div>
           )}
@@ -1107,7 +1147,7 @@ export default function LabDashboard() {
           )}
 
           {/* ── Step 2: CSV Upload + AI Pre-Screen ── */}
-          {tokenData && tokenData.status < 3 && step >= LAB_STEPS.AI_CHECK && step < LAB_STEPS.ZK_PROVING && !aiResult && (
+          {verifiable && step >= LAB_STEPS.AI_CHECK && step < LAB_STEPS.ZK_PROVING && !aiResult && (
             <div style={{
               background: '#fff', borderRadius: '16px',
               border: '1px solid #e0ede9', padding: '2rem',
@@ -1369,7 +1409,7 @@ export default function LabDashboard() {
           )}
 
           {/* ── Step 3+4: Auto ZK Proof + Submit ── */}
-          {tokenData && tokenData.status < 3 && aiResult?.genuine && step >= LAB_STEPS.ZK_PROVING && step < LAB_STEPS.DONE && (
+          {verifiable && aiResult?.genuine && step >= LAB_STEPS.ZK_PROVING && step < LAB_STEPS.DONE && (
             <div style={{
               background: '#fff', borderRadius: '16px',
               border: '1px solid #e0ede9', padding: '2rem',
@@ -1460,6 +1500,27 @@ export default function LabDashboard() {
                   }}
                 >
                   <ShieldCheck size={16} /> Generate Proof & Verify On-Chain
+                </button>
+              )}
+
+              {!loading && step === LAB_STEPS.SUBMITTING && zkProof && (
+                <button
+                  onClick={handleRetrySubmit}
+                  style={{
+                    width: '100%', padding: '0.9rem',
+                    borderRadius: '9999px',
+                    background: '#00C896', color: '#fff',
+                    border: 'none',
+                    fontFamily: "'Libre Baskerville', serif",
+                    fontSize: '0.95rem', fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', gap: '0.5rem',
+                    boxShadow: '0 8px 24px rgba(0,200,150,0.2)',
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  <RefreshCw size={16} /> Retry On-Chain Submission
                 </button>
               )}
 

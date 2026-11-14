@@ -12,11 +12,11 @@
  */
 
 import { useState, useCallback } from 'react'
-import { ethers } from 'ethers'
 import { useWallets, usePrivy } from '@privy-io/react-auth'
 import { createSmartClient, pickTxWallet } from '../lib/pimlico'
+import { getReadContract, readToken } from '../lib/tokens'
 import { encodeFunctionData } from 'viem'
-import { AI_API_URL, AMOY_RPC_URL, CONTRACT_ADDRESS, CONTRACT_ABI, TARGET_CHAIN_ID } from '../config'
+import { AI_API_URL, CONTRACT_ADDRESS, CONTRACT_ABI, TARGET_CHAIN_ID } from '../config'
 import { buildCircuitInput, compareToGold, formatProofForContract } from '../lib/fingerprint'
 
 // ─── Circuit artifacts (served from /public) ─────────────────────────────────
@@ -63,11 +63,6 @@ export function useLabVerification() {
   const [error,     setError]     = useState(null)
   const [loading,   setLoading]   = useState(false)
 
-  // ── Helper: read-only contract instance ────────────────────────────────────
-  const getContract = useCallback(() => {
-    return new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, new ethers.JsonRpcProvider(AMOY_RPC_URL))
-  }, [])
-
   // ── Step 1: Fetch token from chain ─────────────────────────────────────────
   const fetchToken = useCallback(async (tokenId) => {
     setStep(LAB_STEPS.FETCHING)
@@ -78,9 +73,7 @@ export function useLabVerification() {
     setLoading(true)
 
     try {
-      const contract = getContract()
-      const owner = await contract.ownerOf(tokenId)
-      const data  = await contract.getTokenData(tokenId)
+      const [owner, data] = await readToken(getReadContract(), tokenId)
 
       const token = {
         id:            String(tokenId),
@@ -104,7 +97,7 @@ export function useLabVerification() {
     } finally {
       setLoading(false)
     }
-  }, [getContract])
+  }, [])
 
   // ── Step 2: AI pre-screen ──────────────────────────────────────────────────
   // The reagent comes from the token itself; the lab supplies only the RT it
@@ -140,8 +133,10 @@ export function useLabVerification() {
       setStep(result.genuine ? LAB_STEPS.ZK_PROVING : LAB_STEPS.IDLE)
       return result
     } catch (err) {
+      // Stay on this step (token and files kept) so the lab can try again,
+      // e.g. once a sleeping AI service has woken up.
       setError(`AI check failed: ${err.message}`)
-      setStep(LAB_STEPS.IDLE)
+      setStep(LAB_STEPS.AI_CHECK)
       throw err
     } finally {
       setLoading(false)

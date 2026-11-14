@@ -510,7 +510,7 @@ function Team() {
   const members = [
     { initials: 'KS', name: 'Khushi Singh', role: 'Blockchain & ZK Engineer', color: 'var(--chain)' },
     { initials: 'HP', name: 'Harsh Patil', role: 'HPLC Fingerprinting & ML', color: 'var(--accent-dim)' },
-    { initials: 'IK', name: 'Ishaan Khan', role: 'Protocol Architect', role: 'Smart Contracts & Circuit Design', color: '#F59E0B' },
+    { initials: 'IK', name: 'Ishaan Khan', role: 'Smart Contracts & Circuit Design', color: '#F59E0B' },
   ];
 
   return (

@@ -1,5 +1,5 @@
 // frontend/src/pages/Dashboard.jsx — full redesign
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   RefreshCw, ArrowRight, Package, Info,
@@ -9,9 +9,7 @@ import StatusBadge, { STAGES } from '../components/StatusBadge';
 import DNABackground from '../components/DNABackground';
 
 import { useAuth } from '../hooks/useAuth';
-import { useWallets } from '@privy-io/react-auth';
-import { ethers } from 'ethers';
-import { AMOY_RPC_URL, CONTRACT_ADDRESS, CONTRACT_ABI } from '../config';
+import { loadAllTokens } from '../lib/tokens';
 
 /* ── status meta ─────────────────────────────────────────────── */
 const STATUS_META = [
@@ -346,55 +344,30 @@ function UnauthState() {
 }
 
 /* ── Dashboard page ──────────────────────────────────────────── */
-export default function Dashboard({ contract }) {
-  const { ready, authenticated, user } = useAuth();
-  const { wallets } = useWallets();
-  const wallet  = wallets[0];
-  const account = wallet?.address || user?.wallet?.address;
+export default function Dashboard() {
+  const { authenticated } = useAuth();
 
   const [tokens,      setTokens]      = useState([]);
   const [loading,     setLoading]     = useState(false);
   const [error,       setError]       = useState('');
   const [stageFilter, setStageFilter] = useState(null);
 
-  const getActiveContract = async () => {
-    let c = contract;
-    if (!c) {
-      if (wallet) {
-        const prov   = await wallet.getEthereumProvider();
-        const bp     = new ethers.BrowserProvider(prov);
-        const signer = await bp.getSigner();
-        c = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-      } else {
-        const fp = new ethers.JsonRpcProvider(AMOY_RPC_URL);
-        c = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, fp);
-      }
-    }
-    return c;
-  };
-
-  const loadTokens = async () => {
+  // Read from the public Amoy RPC (lib/tokens.js), so the list loads once per
+  // sign-in rather than every time the wallet object changes.
+  const loadTokens = useCallback(async () => {
     if (!authenticated) return;
     try {
       setLoading(true); setError('');
-      const c = await getActiveContract();
-      const fetched = [];
-      const total = Number(await c.totalMinted());
-      for (let i = 0; i < total; i++) {
-        const owner = await c.ownerOf(i);
-        const data  = await c.getTokenData(i);
-        fetched.push({ id: i, owner, batchId: data.batchId, expiry: Number(data.expiry), status: Number(data.status) });
-      }
-      setTokens(fetched.reverse());
+      setTokens(await loadAllTokens());
     } catch (err) {
       console.error(err);
       setError('Failed to load tokens from contract.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [authenticated]);
 
-  useEffect(() => { loadTokens(); }, [contract, authenticated, wallet]);
+  useEffect(() => { loadTokens(); }, [loadTokens]);
 
   const filtered = stageFilter === null
     ? tokens
