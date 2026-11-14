@@ -2,7 +2,7 @@ from fastapi import FastAPI, Header, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-import sys, os, math, numpy as np, re, json, time
+import asyncio, sys, os, math, numpy as np, re, json, threading, time
 import datetime
 from dotenv import load_dotenv
 from eth_abi import encode as abi_encode
@@ -198,7 +198,18 @@ ACCESS_CONTROL_ABI = [
 ]
 
 
+# grant_onchain_role runs in worker threads (see _grant_and_record); one grant
+# at a time, so two grants never read the same pending nonce.
+_GRANT_LOCK = threading.Lock()
+
+
 def grant_onchain_role(wallet_address: str, role_name: str) -> str:
+    """Blocking (up to ~2 minutes while the transaction confirms): call it via asyncio.to_thread."""
+    with _GRANT_LOCK:
+        return _grant_onchain_role(wallet_address, role_name)
+
+
+def _grant_onchain_role(wallet_address: str, role_name: str) -> str:
     role = role_name.lower().strip()
     if role not in ROLE_NAMES:
         raise ValueError("Role must be 'manufacturer' or 'lab'")
@@ -360,7 +371,9 @@ async def extract_peaks_endpoint(file: UploadFile = File(...)):
 async def _grant_and_record(wallet: str, role: str, holder: str) -> str:
     granted_field, tx_field = ROLE_FLAG_FIELDS[role]
     try:
-        tx_hash = grant_onchain_role(holder, role)
+        # Off the event loop: the RPC calls and the receipt wait would otherwise
+        # stall every other request, /health included, until the grant confirms.
+        tx_hash = await asyncio.to_thread(grant_onchain_role, holder, role)
     except Exception as error:
         try:
             await users_collection.update_one(
@@ -554,6 +567,26 @@ async def health():
     }
 
 
+def _chain_checks(record, rpc_url: str, address: str, admin_key: str | None) -> None:
+    """Readiness checks that need the chain: network, contract code, roles, admin balance."""
+    try:
+        w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 15}))
+        record("chain", w3.eth.chain_id == AMOY_CHAIN_ID, f"chain id {w3.eth.chain_id}")
+        code = w3.eth.get_code(Web3.to_checksum_address(address))
+        record("contract_deployed", len(code) > 0, f"{len(code)} bytes")
+        contract = w3.eth.contract(address=Web3.to_checksum_address(address), abi=ACCESS_CONTROL_ABI)
+        if AI_ORACLE_KEY:
+            oracle = Account.from_key(AI_ORACLE_KEY).address
+            record("oracle_has_role", contract.functions.hasRole(Web3.keccak(text="AI_ORACLE_ROLE"), oracle).call(), oracle)
+        if admin_key:
+            admin = Account.from_key(admin_key).address
+            record("admin_has_role", contract.functions.hasRole(bytes(32), admin).call(), admin)
+            balance = w3.eth.get_balance(admin)
+            record("admin_balance", balance > 0, f"{w3.from_wei(balance, 'ether')} POL")
+    except Exception as error:
+        record("chain", False, f"{type(error).__name__}: {error}")
+
+
 @app.get("/health/ready")
 async def readiness():
     """
@@ -575,21 +608,8 @@ async def readiness():
 
     rpc_url = os.environ.get("AMOY_RPC_URL")
     if rpc_url and Web3.is_address(address or ""):
-        try:
-            w3 = Web3(Web3.HTTPProvider(rpc_url, request_kwargs={"timeout": 15}))
-            record("chain", w3.eth.chain_id == AMOY_CHAIN_ID, f"chain id {w3.eth.chain_id}")
-            code = w3.eth.get_code(Web3.to_checksum_address(address))
-            record("contract_deployed", len(code) > 0, f"{len(code)} bytes")
-            contract = w3.eth.contract(address=Web3.to_checksum_address(address), abi=ACCESS_CONTROL_ABI)
-            if AI_ORACLE_KEY:
-                oracle = Account.from_key(AI_ORACLE_KEY).address
-                record("oracle_has_role", contract.functions.hasRole(Web3.keccak(text="AI_ORACLE_ROLE"), oracle).call(), oracle)
-            if admin_key:
-                admin = Account.from_key(admin_key).address
-                record("admin_has_role", contract.functions.hasRole(b"\x00" * 32, admin).call(), admin)
-                record("admin_balance", w3.eth.get_balance(admin) > 0, f"{w3.from_wei(w3.eth.get_balance(admin), 'ether')} POL")
-        except Exception as error:
-            record("chain", False, f"{type(error).__name__}: {error}")
+        # Blocking RPC calls, so in a worker thread rather than on the event loop.
+        await asyncio.to_thread(_chain_checks, record, rpc_url, address, admin_key)
     else:
         record("chain", False, "AMOY_RPC_URL missing" if not rpc_url else "no contract address")
 

@@ -238,3 +238,36 @@ def test_reregistering_keeps_approval_and_regrants_on_new_contract(role_env, mon
     assert again.status_code == 200
     assert grants == [(SMART.lower(), "lab"), (SMART.lower(), "lab")]
     assert users.docs[EOA]["roleContract"] == "0x" + "cd" * 20
+
+
+def test_slow_role_grant_does_not_block_other_requests(role_env, monkeypatch):
+    """A grant waits for its transaction; /health must still answer meanwhile."""
+    import asyncio
+    import threading
+
+    import httpx
+
+    import api
+
+    release = threading.Event()
+
+    def slow_grant(addr, role):
+        release.wait(timeout=10)   # stands in for wait_for_transaction_receipt
+        return "0xslow"
+
+    monkeypatch.setattr(api, "grant_onchain_role", slow_grant)
+    monkeypatch.delenv("ROLE_AUTO_APPROVE")
+
+    async def scenario():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as http:
+            grant = asyncio.create_task(http.post("/register-role", json=_registration()))
+            await asyncio.sleep(0.2)              # the grant is now waiting
+            health = await asyncio.wait_for(http.get("/health"), timeout=5)
+            assert not grant.done()
+            release.set()
+            return health, await grant
+
+    health, grant = asyncio.run(scenario())
+    assert health.status_code == 200
+    assert grant.status_code == 200 and grant.json()["tx_hash"] == "0xslow"

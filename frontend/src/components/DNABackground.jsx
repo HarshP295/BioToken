@@ -171,7 +171,7 @@ export default function DNABackground() {
       // forceContextLoss frees the WebGL context, which dispose() alone does not,
       // so repeated mounts don't exhaust the browser's context limit.
       if (renderer) {
-        try { mountEl?.removeChild(renderer.domElement); } catch (_) {}
+        try { mountEl?.removeChild(renderer.domElement); } catch { /* already detached */ }
         renderer.dispose();
         renderer.forceContextLoss();
       }
